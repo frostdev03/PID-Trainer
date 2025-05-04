@@ -1,0 +1,1 @@
+Folder ini berisi untuk menyimpan semua file yang berhubungan dengan hardware

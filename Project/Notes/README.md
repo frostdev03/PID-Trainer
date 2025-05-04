@@ -1,0 +1,1 @@
+Folder ini berisi catatan mengenai project ini
