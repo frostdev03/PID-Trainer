@@ -1,0 +1,50 @@
+#include<Wire.h>
+#define CLK 18
+#define DT  19
+#define SW  21
+
+float Kp = 0.0, Ki = 0.0, Kd = 0.0;
+int lastStateCLK;
+bool lastButtonState = HIGH;
+
+enum PIDParam { KP, KI, KD };
+PIDParam currentParam = KP;
+
+void setup() {
+  pinMode(CLK, INPUT);
+  pinMode(DT, INPUT);
+  pinMode(SW, INPUT_PULLUP);
+  Serial.begin(115200);
+  lastStateCLK = digitalRead(CLK);
+}
+
+void loop() {
+  int currentStateCLK = digitalRead(CLK);
+  if (currentStateCLK != lastStateCLK && currentStateCLK == HIGH) {
+    int direction = digitalRead(DT) == LOW ? 1 : -1;
+
+    switch (currentParam) {
+      case KP: Kp += 0.1 * direction; break;
+      case KI: Ki += 0.1 * direction; break;
+      case KD: Kd += 0.1 * direction; break;
+    }
+
+    Serial.print("[ACTIVE: ");
+    Serial.print(currentParam == KP ? "Kp" : currentParam == KI ? "Ki" : "Kd");
+    Serial.print("] => Kp: "); Serial.print(Kp, 2);
+    Serial.print(" | Ki: "); Serial.print(Ki, 2);
+    Serial.print(" | Kd: "); Serial.println(Kd, 2);
+  }
+  lastStateCLK = currentStateCLK;
+
+  bool currentButtonState = digitalRead(SW);
+  if (lastButtonState == HIGH && currentButtonState == LOW) {
+    currentParam = (PIDParam)((currentParam + 1) % 3);
+    Serial.print("==> Parameter aktif: ");
+    Serial.println(currentParam == KP ? "Kp" : currentParam == KI ? "Ki" : "Kd");
+    delay(200);
+  }
+  lastButtonState = currentButtonState;
+
+  delay(1);
+}
