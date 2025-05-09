@@ -19,6 +19,7 @@ Motor DC + Encoder:
 2. https://shopee.co.id/Dinamo-DC-Motor-775-12V-12000-Rpm-High-Speed-High-Torque-100W-RS775-RS-775-i.53753550.9419076827?sp_atk=88ebca9f-0f81-4674-87b2-ec15b59bae48&xptdk=88ebca9f-0f81-4674-87b2-ec15b59bae48
 3. https://www.tokopedia.com/sutantoshop99/dc3v-200rpm-n20-gearbox-dc-motor-with-metal-gearbox-wheel
 4. https://tk.tokopedia.com/ZShD1bm8v/
+5. https://youtu.be/-5e403JcevY?si=2Jf3yfdLN-fny-GS
 
 Driver:
 
