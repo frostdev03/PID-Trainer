@@ -33,7 +33,7 @@ Stepdown (dual stepdown?):
 
 ESP32:
 
-1. ESP32 Wroom devkit v4
+1. ESP32 Wroom devkit v1
 
 Referensi Software:
 
