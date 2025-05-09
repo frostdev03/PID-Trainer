@@ -12,8 +12,6 @@ https://www.youtube.com/watch?v=7lkJIw886TM
 https://www.youtube.com/watch?v=h-D5ySpcmYo
 https://youtube.com/shorts/2q83J_y1rM8?si=6LGcEu1bAybZHGjq
 
-![alt text]({1A2FFC8D-8BAA-4D47-A4DC-2C530742FE86}.png)
-
 Referensi Hardware:
 Motor DC + Encoder:
 
@@ -28,7 +26,7 @@ Driver:
 
 Stepdown (dual stepdown?):
 
-1. LM259N
+1. LM2596
 2. AMS1117 5V
 
 ESP32:
@@ -48,8 +46,10 @@ Konektivitas (Wireless):
 
 Fitur Web:
 
-1. Tuning PID
-2. Kalibrasi Encoder & derajat
-3. Grafik
-4. Set zero
-5. coming soon...
+1. Control PWM
+2. Control derajat
+3. Tuning PID
+4. Kalibrasi Encoder & derajat
+5. Grafik
+6. Set CW CCW
+7. coming soon...
