@@ -2,8 +2,16 @@ Folder ini berisi referensi-referensi yang digunakan dalam project ini
 
 Referensi konsep:
 https://media.neliti.com/media/publications/133498-ID-kontrol-pid-untuk-pengaturan-kecepatan-m.pdf
+https://www.youtube.com/watch?v=ojuAATNIfNE
+https://www.youtube.com/watch?v=HhOEy2pxTgg
+https://www.youtube.com/watch?v=c6tOO7c3Os0
 https://www.youtube.com/watch?v=j2qJH3ydylE
+https://www.youtube.com/watch?v=1jjesXmhc9c
+https://www.youtube.com/watch?v=5n-4pOE6VKU
 https://www.youtube.com/watch?v=7lkJIw886TM
+https://www.youtube.com/watch?v=h-D5ySpcmYo
+
+![alt text]({1A2FFC8D-8BAA-4D47-A4DC-2C530742FE86}.png)
 
 Referensi Hardware:
 Motor DC + Encoder:
