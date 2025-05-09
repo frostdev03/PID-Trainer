@@ -23,7 +23,7 @@ Motor DC + Encoder:
 Driver:
 
 1. L298N
-2.
+2. 
 
 Stepdown (dual stepdown?):
 
@@ -32,7 +32,7 @@ Stepdown (dual stepdown?):
 
 ESP32:
 
-1. ESP32 Wroom
+1. ESP32 Wroom devkit v4
 
 Referensi Software:
 
