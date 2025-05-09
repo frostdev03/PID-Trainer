@@ -10,6 +10,7 @@ https://www.youtube.com/watch?v=1jjesXmhc9c
 https://www.youtube.com/watch?v=5n-4pOE6VKU
 https://www.youtube.com/watch?v=7lkJIw886TM
 https://www.youtube.com/watch?v=h-D5ySpcmYo
+https://youtube.com/shorts/2q83J_y1rM8?si=6LGcEu1bAybZHGjq
 
 ![alt text]({1A2FFC8D-8BAA-4D47-A4DC-2C530742FE86}.png)
 
