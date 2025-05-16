@@ -1,9 +1,9 @@
 Connectror:
 1. JACK DC FEMALE SOCKET DC PANEL MOUNT DC-022B 3A 2.1X5.5mm 2.1mm x 5.5m (https://tk.tokopedia.com/ZShxdTYsv/)
-2. 
+2. Adaptor DC 12V 2A Power Supply DC Adapter 110V 220V (https://tk.tokopedia.com/ZShQHc1sh/)
 
 PUSH BUTTON:
-1. Rotary Encoder PCB Board Module (https://tk.tokopedia.com/ZShxRWYqM/)
+1. Rotary Encoder PCB Board Module (https://tk.tokopedia.com/ZShxRWYqM/) 
 
 MAIN:
 1. ESP32 USB-C Development Board Dual Core ESP-32S Board WROOM 32 (https://tk.tokopedia.com/ZShxRUpa7/)
