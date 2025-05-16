@@ -10,3 +10,4 @@ MAIN:
 2. LM2596 DC-DC ADJUSTABLE STEP DOWN PSU 4.5-35V to 1.25-30V (https://tk.tokopedia.com/ZShxRckhU/)
 3. L298N L298 DUAL H BRIDGE STEPPER MOTOR DRIVER MODULE (https://tk.tokopedia.com/ZShx8u6Lw/)
 4. 1.44-inch color LCD screen TFT display SIP port 8-pin LCD module ST7735 resolution 128*128 (https://tk.tokopedia.com/ZShxLJn18/)
+5. AS5600 12bit Magnetic Encoder Induction Angel Sensor Module (https://tk.tokopedia.com/ZShQYyRgh/)
