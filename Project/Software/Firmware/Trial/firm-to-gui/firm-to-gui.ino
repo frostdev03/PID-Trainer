@@ -5,11 +5,11 @@
 
 AS5600 as5600;
 
-const char* ssid = "ESP32_Sensor_Dashboard"; 
-const char* password = "12345678";
+const char *ssid = "ESP32_Sensor_Dashboard";
+const char *password = "12345678";
 
 AsyncWebServer server(80);
-AsyncWebSocket ws("/ws"); 
+AsyncWebSocket ws("/ws");
 
 // uint16_t last_raw_angle = 0;
 // float last_angle_deg = 0.0;
@@ -115,7 +115,7 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
 
 void setup() {
   Serial.begin(115200);
-  Wire.begin(); // pin default GPIO 21 (SDA) dan 22 (SCL)
+  Wire.begin();  // pin default GPIO 21 (SDA) dan 22 (SCL)
 
   as5600.begin();
   // if (!as5600.isConnected()) {
@@ -123,7 +123,7 @@ void setup() {
   //   while (1);
   // }
   Serial.println("Sensor AS5600 terdeteksi. Putar poros motor untuk melihat perubahan nilai.");
-    // (0-4095)
+  // (0-4095)
   uint16_t startPos = as5600.rawAngle();
   as5600.setZPosition(startPos);
 
@@ -134,44 +134,42 @@ void setup() {
 
   IPAddress myIP = WiFi.softAPIP();
   Serial.print("Alamat IP AP: ");
-  Serial.println(myIP); 
+  Serial.println(myIP);
 
   ws.onEvent(onEvent);
   server.addHandler(&ws);
 
   // server.on("/data", HTTP_GET, [](AsyncWebServerRequest *request){
   //   // coba kirim string
-  //   String json = "{\"raw\":" + String(last_raw_angle) + 
-  //                 ", \"deg\":" + String(last_angle_deg, 2) + 
-  //                 ", \"message\":\"" + lastSerialMessage + "\"}"; 
+  //   String json = "{\"raw\":" + String(last_raw_angle) +
+  //                 ", \"deg\":" + String(last_angle_deg, 2) +
+  //                 ", \"message\":\"" + lastSerialMessage + "\"}";
   //   request->send(200, "application/json", json);
   // });
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send_P(200, "text/html", htmlContent);
   });
-    
+
   server.begin();
 }
 
 void loop() {
 
-if (Serial.available() > 0) {
+  if (Serial.available() > 0) {
     String receivedText = Serial.readStringUntil('\n');
-    receivedText.trim(); 
+    receivedText.trim();
 
     if (receivedText.length() > 0) {
-      lastSerialMessage = receivedText; 
+      lastSerialMessage = receivedText;
       Serial.print("Pesan baru dikirim ke web: ");
       Serial.println(lastSerialMessage);
     }
   }
 
   float raw_angle = as5600.rawAngle();
-  float angle_deg = (raw_angle/4095) * 360;
+  float angle_deg = (raw_angle / 4095) * 360;
 
-  String json = "{\"raw\":" + String(raw_angle) + 
-                ", \"deg\":" + String(angle_deg, 2) + 
-                ", \"message\":\"" + lastSerialMessage + "\"}";
+  String json = "{\"raw\":" + String(raw_angle) + ", \"deg\":" + String(angle_deg, 2) + ", \"message\":\"" + lastSerialMessage + "\"}";
 
   ws.textAll(json);
   //cleanup
@@ -182,5 +180,5 @@ if (Serial.available() > 0) {
   // Serial.print(" || Derajat: ");
   // Serial.print(currentPos/4095 * 360);
 
-  delay(100); 
+  delay(100);
 }
