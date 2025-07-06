@@ -7,14 +7,17 @@
 #define TFT_CS    5
 #define TFT_RST   4
 #define TFT_DC    15
+#define TFT_SCLK   18
+#define TFT_MOSI   23
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
 // === Pin Motor & Tombol ===
 #define IN1 14
 #define IN2 27
-#define ENA 25
+#define ENA 12
+
 #define CLK 32
-#define DT  26
+#define DT  25
 #define SW  13
 
 // ==========================================================
@@ -22,7 +25,7 @@ Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 // ==========================================================
 const int ENCODER_PPR = 24;           // Asumsi resolusi encoder Anda
 const long MOTOR_TIME_FOR_360 = 1500; // ASUMSI: Waktu motor berputar 360° (dalam ms)
-const int motorSpeed = 150;           // Kecepatan motor saat bergerak (0-255)
+const int motorSpeed = 0;           // Kecepatan motor saat bergerak (0-255)
 
 // === Variabel dihitung otomatis, jangan diubah ===
 const float DEGREES_PER_TICK = 360.0 / ENCODER_PPR;

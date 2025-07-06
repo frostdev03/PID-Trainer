@@ -27,7 +27,7 @@ Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
 #define IN1 14
 #define IN2 27
-#define ENA 25
+#define ENA 12
 
 // PID values
 float Kp = 0.0, Ki = 0.0, Kd = 0.0;
