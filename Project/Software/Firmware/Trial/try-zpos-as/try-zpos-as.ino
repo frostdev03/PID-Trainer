@@ -5,7 +5,7 @@ AS5600 as5600;
 
 void setup() {
   Serial.begin(115200);
-  Wire.begin(); // ESP32 default I2C pins: SDA=21, SCL=22
+  Wire.begin(21, 22); // ESP32 default I2C pins: SDA=21, SCL=22
   as5600.begin();
   as5600.setDirection(AS5600_CLOCK_WISE); 
 

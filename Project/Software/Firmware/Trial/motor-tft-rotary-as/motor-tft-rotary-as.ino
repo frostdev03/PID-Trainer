@@ -1,219 +1,151 @@
-#include <SPI.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7735.h>
 
-// TFT Pins
-#define TFT_CS     5
-#define TFT_RST    4
-#define TFT_DC     15
-//#define TFT_SCLK   18
-//#define TFT_MOSI   23
+// === TFT Setup ===
+#define TFT_CS    5
+#define TFT_RST   4
+#define TFT_DC    15
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
-//Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST, TFT_SCLK, TFT_MOSI);
 
+// === AS5600 (I2C Address) ===
+#define AS5600_ADDR 0x36
 
-// Rotary Pins
+// === Rotary Encoder ===
 #define CLK 32
 #define DT  25
 #define SW  13
 
-// Motor Driver BTS7960 Pins
-//#define RPWM 26
-//#define LPWM 33
-//
-//#define enr 14
-//#define enl 27 
+// === BTS7960 ===
+#define RPWM 2
+#define LPWM 0
+#define REN 27
+#define LEN 14
 
-#define IN1 14
-#define IN2 27
-#define ENA 12
+// === Variabel Global ===
+float targetAngle = 0;
+float currentAngle = 0;
 
-// target pos
-float targetAngle = 0.0;
-float motorAngle = 0.0;
-float error = 0.0;
-const int timePerDegree = 10; 
+int lastCLK = HIGH;
+bool lastSW = HIGH;
+unsigned long lastButtonPress = 0; // Untuk debounce non-blocking
+int rotaryStep = 5; // Step sudut tiap klik rotary
 
-// PID values
-float Kp = 0.0, Ki = 0.0, Kd = 0.0;
-
-// Motor speed
-int motorSpeed = 150;
-
-// Rotary state
-int lastStateCLK;
-bool lastButtonState = HIGH;
-//int targetAngle = 0;
-
-
-enum PIDParam { KP, KI, KD };
-PIDParam currentParam = KP;
 
 void setup() {
   Serial.begin(115200);
+  Wire.begin(21, 22);
+
+  // Rotary
   pinMode(CLK, INPUT);
   pinMode(DT, INPUT);
   pinMode(SW, INPUT_PULLUP);
-//
-//  pinMode(RPWM, OUTPUT);
-//  pinMode(LPWM, OUTPUT);
+  lastCLK = digitalRead(CLK);
 
-pinMode(IN1, OUTPUT);
-pinMode(IN2, OUTPUT);
-pinMode(ENA, OUTPUT);
+  // Motor (pin tetap disiapkan untuk nanti)
+  pinMode(RPWM, OUTPUT);
+  pinMode(LPWM, OUTPUT);
+  pinMode(REN, OUTPUT);
+  pinMode(LEN, OUTPUT);
+  digitalWrite(REN, HIGH);
+  digitalWrite(LEN, HIGH);
+  // Pastikan motor tidak bergerak saat start
+  analogWrite(RPWM, 0);
+  analogWrite(LPWM, 0);
 
-  
-  lastStateCLK = digitalRead(CLK);
-
+  // TFT
   tft.initR(INITR_BLACKTAB);
   tft.setRotation(1);
   tft.fillScreen(ST77XX_BLACK);
-  tft.setTextSize(2);
+  tft.setTextSize(2); // Ukuran teks diperbesar agar lebih jelas
 
+  // Baca posisi awal motor sebagai target awal
+  targetAngle = readAS5600Angle();
+  currentAngle = targetAngle;
   displayValues();
 }
 
 void loop() {
-  // Rotary Rotation
-  int currentStateCLK = digitalRead(CLK);
+  // === BACA ROTARY ENCODER UNTUK MENGUBAH TARGET ANGLE ===
+  int currentCLK = digitalRead(CLK);
+  if (currentCLK != lastCLK && currentCLK == LOW) {
+    // DIUBAH: Logika arah putaran yang lebih andal
+    int direction = (digitalRead(DT) != currentCLK) ? 1 : -1;
+    targetAngle += direction * rotaryStep;
+    // DIHAPUS: Batasan 0-360 pada targetAngle, biarkan berputar bebas
+  }
+  lastCLK = currentCLK;
+
+  // === BACA POSISI MOTOR SAAT INI ===
+  currentAngle = readAS5600Angle();
+
+  // === BACA TOMBOL (UNTUK RESET TARGET) ===
+  bool currentSW = digitalRead(SW);
+  // DIUBAH: Logika tombol dengan debounce non-blocking
+  if (lastSW == HIGH && currentSW == LOW && (millis() - lastButtonPress) > 250) {
+    lastButtonPress = millis();
+    // FUNGSI BARU: Tekan tombol untuk menyamakan target dengan posisi motor saat ini
+    targetAngle = currentAngle;
+  }
+  lastSW = currentSW;
   
-  if (currentStateCLK != lastStateCLK && currentStateCLK == HIGH) {
-    int direction = (digitalRead(DT) == LOW) ? 1 : -1;
-    targetAngle += direction;
+  // === PERBARUI TAMPILAN ===
+  displayValues();
 
-    // Ubah nilai parameter PID
-//    switch (currentParam) {
-//      case KP: Kp += 0.1 * direction; if (Kp < 0) Kp = 0; break;
-//      case KI: Ki += 0.1 * direction; if (Ki < 0) Ki = 0; break;
-//      case KD: Kd += 0.1 * direction; if (Kd < 0) Kd = 0; break;
-//    }
+  // Tidak ada kontrol motor di sini, hanya pembacaan dan tampilan
+  // Fungsi driveMotor() bisa ditambahkan kembali saat logika kontrol siap
 
-    // Ubah kecepatan motor berdasarkan arah putaran
-//    motorSpeed += 20 * direction;
-//    motorSpeed = constrain(motorSpeed, -255, 255);
-//    driveMotor(motorSpeed);
-
-    displayValues();
-
-//    Serial.print("[ACTIVE: ");
-//    Serial.print(currentParam == KP ? "Kp" : currentParam == KI ? "Ki" : "Kd");
-//    Serial.print("] => Kp: "); Serial.print(Kp, 2);
-//    Serial.print(" | Ki: "); Serial.print(Ki, 2);
-//    Serial.print(" | Kd: "); Serial.print(Kd, 2);
-//    Serial.print(" | Motor: "); Serial.println(motorSpeed);
-//    Serial.print(" | Rotary: "); Serial.println(targetAngle);
-
-  }
-  lastStateCLK = currentStateCLK;
-
-  // Button Press to switch parameter
-  bool currentButtonState = digitalRead(SW);
-  if (lastButtonState == HIGH && currentButtonState == LOW) {
-//    currentParam = (PIDParam)((currentParam + 1) % 3);
-//
-//    // Reset motor saat pindah parameter
-//    motorSpeed = 0;
-//    driveMotor(motorSpeed);
-//
-//    displayValues();
-//    Serial.print("==> Parameter aktif: ");
-//    Serial.println(currentParam == KP ? "Kp" : currentParam == KI ? "Ki" : "Kd");
-    targetAngle = 0;
-    motorAngle = 0;
-    driveMotor(0); // Langsung hentikan motor
-    displayValues();
-    Serial.println("==> Angle Reset to 0");
-    delay(200); // Debounce
-  }
-  lastButtonState = currentButtonState;
-
-   if (motorAngle < targetAngle) {
-    // Jika sudut motor lebih kecil, gerak maju
-    driveMotor(motorSpeed);
-    delay(timePerDegree); // <-- Tahan gerakan selama waktu kalibrasi
-    motorAngle++;         // <-- Update sudut asumsi motor
-    displayValues();
-  } else if (motorAngle > targetAngle) {
-    // Jika sudut motor lebih besar, gerak mundur
-    driveMotor(-motorSpeed); // <-- Kecepatan negatif untuk mundur
-    delay(timePerDegree);
-    motorAngle--;
-    displayValues();
-  } else {
-    // Jika sudah sama, berhenti
-    driveMotor(0);
-  }
-
-
-  delay(1);
+  delay(10); // Memberi jeda agar loop tidak terlalu cepat
 }
 
+// Fungsi ini disimpan untuk penggunaan di masa depan, tapi tidak dipanggil dari loop()
 void driveMotor(int speed) {
-  speed = constrain(speed, -255, 255);
+  if (abs(speed) < 10) { // Deadband
+    analogWrite(RPWM, 0);
+    analogWrite(LPWM, 0);
+    return;
+  }
 
   if (speed > 0) {
-    digitalWrite(IN1, HIGH);
-    digitalWrite(IN2, LOW);
-    analogWrite(ENA, speed);
-  } else if (speed < 0) {
-    digitalWrite(IN1, LOW);
-    digitalWrite(IN2, HIGH);
-    analogWrite(ENA, -speed);
+    analogWrite(RPWM, speed);
+    analogWrite(LPWM, 0);
   } else {
-    digitalWrite(IN1, LOW);
-    digitalWrite(IN2, LOW);
-    analogWrite(ENA, 0);
+    analogWrite(RPWM, 0);
+    analogWrite(LPWM, -speed);
   }
 }
 
-//void displayValues() {
-//  tft.fillScreen(ST77XX_BLACK);
-//
-//  // Header PID
-//  tft.setTextSize(2);
-//  for (int i = 0; i < 3; i++) {
-//    tft.setCursor(10, 10 + i * 25);  // Ukuran 2, tiap line kira-kira 25px
-//    if (i == currentParam)
-//      tft.setTextColor(ST77XX_YELLOW);
-//    else
-//      tft.setTextColor(ST77XX_GREEN);
-//
-//    const char* label = (i == 0) ? "Kp" : (i == 1) ? "Ki" : "Kd";
-//    float val = (i == 0) ? Kp : (i == 1) ? Ki : Kd;
-//
-//    tft.print(label);
-//    tft.print(": ");
-//    tft.print(val, 2);
-//  }
-//
-//  // Info tambahan: motor & rotary
-//  tft.setTextSize(1);
-//  tft.setTextColor(ST77XX_CYAN);
-//  tft.setCursor(10, 90);  // Start setelah 3 baris besar
-//  tft.print("Motor Speed: ");
-//  tft.print(motorSpeed);
-//
-//  tft.setCursor(10, 105);
-//  tft.setTextColor(ST77XX_MAGENTA);
-//  tft.print("Rotary Raw: ");
-//  tft.print(targetAngle);
-//}
+// Fungsi ini sudah benar, tidak perlu diubah
+float readAS5600Angle() {
+  Wire.beginTransmission(AS5600_ADDR);
+  Wire.write(0x0E); // Register sudut MSB
+  Wire.endTransmission();
+  Wire.requestFrom(AS5600_ADDR, 2);
 
+  if (Wire.available() < 2) {
+    return currentAngle; // Jika gagal baca, kembalikan nilai terakhir
+  }
+
+  uint16_t high = Wire.read();
+  uint16_t low = Wire.read();
+  uint16_t raw = ((high & 0x0F) << 8) | low;
+
+  return (raw * 360.0) / 4096.0;
+}
+
+// DISEDERHANAKAN: Hanya menampilkan nilai yang relevan
 void displayValues() {
   tft.fillScreen(ST77XX_BLACK);
-  tft.setCursor(10, 20);
   
-  // Tampilkan Sudut Target
-  tft.setTextColor(ST77XX_CYAN);
+  tft.setCursor(10, 20);
+  tft.setTextColor(ST77XX_YELLOW);
   tft.print("Target: ");
-  tft.print(targetAngle);
+  tft.print(targetAngle, 1);
   tft.print(" deg");
 
-  // Tampilkan Sudut Motor (Asumsi)
-  tft.setCursor(10, 50);
-  tft.setTextColor(ST77XX_YELLOW);
+  tft.setCursor(10, 60);
+  tft.setTextColor(ST77XX_CYAN);
   tft.print("Motor : ");
-  tft.print(motorAngle);
+  tft.print(currentAngle, 1);
   tft.print(" deg");
 }
