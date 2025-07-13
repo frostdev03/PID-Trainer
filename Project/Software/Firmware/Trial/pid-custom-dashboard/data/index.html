@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PID Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        min-height: 100vh;
+        padding: 20px;
+      }
+
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
+        overflow: hidden;
+      }
+
+      .header {
+        background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+        color: white;
+        padding: 20px 30px;
+        text-align: center;
+      }
+
+      .header h1 {
+        font-size: 2.5em;
+        margin-bottom: 10px;
+        color: #f7fafc;
+      }
+
+      .status {
+        display: inline-block;
+        padding: 5px 15px;
+        border-radius: 20px;
+        font-size: 0.9em;
+        font-weight: bold;
+      }
+
+      .status.connected {
+        background: #68d391;
+        color: #1a202c;
+      }
+
+      .status.disconnected {
+        background: #a0aec0;
+        color: #1a202c;
+      }
+
+      .main-content {
+        display: grid;
+        grid-template-columns: 1fr 350px;
+        gap: 0;
+        min-height: 600px;
+      }
+
+      .chart-section {
+        padding: 30px;
+        background: #f7fafc;
+      }
+
+      .chart-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .view-toggle {
+        display: flex;
+        background: #e2e8f0;
+        border-radius: 25px;
+        padding: 3px;
+      }
+
+      .view-toggle button {
+        padding: 8px 20px;
+        border: none;
+        border-radius: 20px;
+        background: transparent;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-weight: 500;
+        color: #4a5568;
+      }
+
+      .view-toggle button.active {
+        background: #4a5568;
+        color: white;
+        box-shadow: 0 2px 10px rgba(74, 85, 104, 0.3);
+      }
+
+      .graph-controls {
+        display: flex;
+        gap: 10px;
+      }
+
+      .control-btn {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 20px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        font-size: 0.9em;
+        color: white;
+      }
+
+      .control-btn.capture {
+        background: #718096;
+      }
+
+      .control-btn.pause {
+        background: #a0aec0;
+        color: #1a202c;
+      }
+
+      .control-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+      }
+
+      .chart-container {
+        position: relative;
+        height: 400px;
+        background: white;
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+      }
+
+      .control-panel {
+        background: #2d3748;
+        color: white;
+        padding: 30px;
+      }
+
+      .control-section {
+        margin-bottom: 30px;
+      }
+
+      .control-section h3 {
+        margin-bottom: 15px;
+        color: #f7fafc;
+        font-size: 1.2em;
+        border-bottom: 2px solid #4a5568;
+        padding-bottom: 8px;
+      }
+
+      .pid-controls {
+        display: grid;
+        gap: 15px;
+      }
+
+      .input-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+
+      .input-group label {
+        font-weight: 500;
+        color: #cbd5e0;
+        font-size: 0.9em;
+      }
+
+      .input-with-button {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .input-group input {
+        flex: 1;
+        padding: 10px;
+        border: 2px solid #4a5568;
+        border-radius: 8px;
+        background: #4a5568;
+        color: white;
+        font-size: 1em;
+        transition: border-color 0.3s ease;
+      }
+
+      .input-group input:focus {
+        outline: none;
+        border-color: #718096;
+        background: #2d3748;
+      }
+
+      .send-btn {
+        padding: 8px 16px;
+        background: #718096;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.9em;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        white-space: nowrap;
+      }
+
+      .send-btn:hover {
+        background: #a0aec0;
+        color: #1a202c;
+        transform: translateY(-1px);
+      }
+
+      .calibrate-btn {
+        width: 100%;
+        padding: 12px;
+        background: linear-gradient(135deg, #718096 0%, #4a5568 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 1.1em;
+        font-weight: bold;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .calibrate-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(113, 128, 150, 0.4);
+      }
+
+      .data-display {
+        background: #4a5568;
+        border-radius: 8px;
+        padding: 15px;
+        margin-top: 20px;
+      }
+
+      .data-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        font-size: 0.9em;
+      }
+
+      .data-label {
+        color: #cbd5e0;
+      }
+
+      .data-value {
+        color: #e2e8f0;
+        font-weight: bold;
+      }
+
+      @media (max-width: 1024px) {
+        .main-content {
+          grid-template-columns: 1fr;
+        }
+
+        .chart-controls {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .view-toggle {
+          justify-content: center;
+        }
+      }
+
+      @media (max-width: 768px) {
+        body {
+          padding: 10px;
+        }
+
+        .header {
+          padding: 15px 20px;
+        }
+
+        .header h1 {
+          font-size: 2em;
+        }
+
+        .chart-section,
+        .control-panel {
+          padding: 20px;
+        }
+
+        .input-with-button {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .send-btn {
+          margin-top: 5px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>PID Dashboard</h1>
+        <div class="status" id="connectionStatus">Disconnected</div>
+      </div>
+
+      <div class="main-content">
+        <div class="chart-section">
+          <div class="chart-controls">
+            <div class="view-toggle">
+              <button class="active" onclick="switchView('pwm')">
+                PWM View
+              </button>
+              <button onclick="switchView('speed')">Motor Speed</button>
+            </div>
+
+            <div class="graph-controls">
+              <button class="control-btn capture" onclick="captureGraph()">
+                📸 Capture
+              </button>
+              <button
+                class="control-btn pause"
+                onclick="togglePause()"
+                id="pauseBtn"
+              >
+                ⏸️ Pause
+              </button>
+            </div>
+          </div>
+
+          <div class="chart-container">
+            <canvas id="motorChart"></canvas>
+          </div>
+        </div>
+
+        <div class="control-panel">
+          <div class="control-section">
+            <h3>PID Parameters</h3>
+            <div class="pid-controls">
+              <div class="input-group">
+                <label for="kp">Proportional (Kp)</label>
+                <div class="input-with-button">
+                  <input type="number" id="kp" step="0.01" value="1.0" />
+                  <button class="send-btn" onclick="sendSinglePID('kp')">
+                    Send
+                  </button>
+                </div>
+              </div>
+              <div class="input-group">
+                <label for="ki">Integral (Ki)</label>
+                <div class="input-with-button">
+                  <input type="number" id="ki" step="0.01" value="0.1" />
+                  <button class="send-btn" onclick="sendSinglePID('ki')">
+                    Send
+                  </button>
+                </div>
+              </div>
+              <div class="input-group">
+                <label for="kd">Derivative (Kd)</label>
+                <div class="input-with-button">
+                  <input type="number" id="kd" step="0.01" value="0.05" />
+                  <button class="send-btn" onclick="sendSinglePID('kd')">
+                    Send
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="control-section">
+            <button class="calibrate-btn" onclick="calibrate()">
+              🔄 Calibrate (Reset to 0)
+            </button>
+          </div>
+
+          <div class="control-section">
+            <h3>Real-time Data</h3>
+            <div class="data-display">
+              <div class="data-row">
+                <span class="data-label">Current PWM:</span>
+                <span class="data-value" id="currentPWM">0%</span>
+              </div>
+              <div class="data-row">
+                <span class="data-label">Motor Speed:</span>
+                <span class="data-value" id="currentSpeed">0 RPM</span>
+              </div>
+              <div class="data-row">
+                <span class="data-label">Target:</span>
+                <span class="data-value" id="targetValue">0</span>
+              </div>
+              <div class="data-row">
+                <span class="data-label">Error:</span>
+                <span class="data-value" id="errorValue">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Global variables
+      let chart;
+      let ws;
+      let currentView = "pwm";
+      let isPaused = false;
+      let isRunning = true;
+      let dataPoints = [];
+      let maxDataPoints = 50;
+
+      // Mock data for demonstration
+      let mockTime = 0;
+      let mockInterval;
+
+      // Initialize the application
+      document.addEventListener("DOMContentLoaded", function () {
+        initChart();
+        connectWebSocket();
+        startMockData(); // Remove this when connecting to real ESP32
+      });
+
+      // Initialize Chart.js
+      function initChart() {
+        const ctx = document.getElementById("motorChart").getContext("2d");
+
+        chart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: [],
+            datasets: [
+              {
+                label: "PWM (%)",
+                data: [],
+                borderColor: "#4a5568",
+                backgroundColor: "rgba(74, 85, 104, 0.1)",
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4,
+              },
+              {
+                label: "Target",
+                data: [],
+                borderColor: "#a0aec0",
+                backgroundColor: "rgba(160, 174, 192, 0.1)",
+                borderWidth: 2,
+                borderDash: [5, 5],
+                fill: false,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: {
+              duration: 0,
+            },
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: "Time (s)",
+                },
+              },
+              y: {
+                title: {
+                  display: true,
+                  text: currentView === "pwm" ? "PWM (%)" : "Speed (RPM)",
+                },
+                min: 0,
+                max: currentView === "pwm" ? 100 : 3000,
+              },
+            },
+            plugins: {
+              legend: {
+                display: true,
+                position: "top",
+              },
+            },
+          },
+        });
+      }
+
+      // WebSocket connection
+      function connectWebSocket() {
+        // Replace with your ESP32 IP address
+        const wsUrl = "ws://192.168.1.100:81"; // Change this to your ESP32 IP
+
+        try {
+          ws = new WebSocket(wsUrl);
+
+          ws.onopen = function () {
+            updateConnectionStatus(true);
+            console.log("WebSocket connected");
+          };
+
+          ws.onmessage = function (event) {
+            try {
+              const data = JSON.parse(event.data);
+              updateChart(data);
+              updateDataDisplay(data);
+            } catch (e) {
+              console.error("Error parsing WebSocket data:", e);
+            }
+          };
+
+          ws.onclose = function () {
+            updateConnectionStatus(false);
+            console.log("WebSocket disconnected");
+            // Attempt to reconnect after 3 seconds
+            setTimeout(connectWebSocket, 3000);
+          };
+
+          ws.onerror = function (error) {
+            console.error("WebSocket error:", error);
+            updateConnectionStatus(false);
+          };
+        } catch (e) {
+          console.error("Failed to connect WebSocket:", e);
+          updateConnectionStatus(false);
+        }
+      }
+
+      // Mock data generator for demonstration
+      function startMockData() {
+        mockInterval = setInterval(() => {
+          if (!isPaused && isRunning) {
+            mockTime += 0.1;
+            const mockData = {
+              time: mockTime.toFixed(1),
+              pwm: 50 + 30 * Math.sin(mockTime * 0.5) + Math.random() * 10,
+              speed:
+                1500 + 800 * Math.sin(mockTime * 0.5) + Math.random() * 200,
+              target: 70,
+              error: Math.random() * 20 - 10,
+            };
+            updateChart(mockData);
+            updateDataDisplay(mockData);
+          }
+        }, 100);
+      }
+
+      // Update connection status
+      function updateConnectionStatus(connected) {
+        const statusElement = document.getElementById("connectionStatus");
+        if (connected) {
+          statusElement.textContent = "Connected";
+          statusElement.className = "status connected";
+        } else {
+          statusElement.textContent = "Disconnected";
+          statusElement.className = "status disconnected";
+        }
+      }
+
+      // Update chart with new data
+      function updateChart(data) {
+        if (!chart || isPaused || !isRunning) return;
+
+        const time = parseFloat(data.time);
+        const value = currentView === "pwm" ? data.pwm : data.speed;
+        const target = currentView === "pwm" ? data.target : data.target * 30; // Scale target for speed view
+
+        // Add new data point
+        chart.data.labels.push(time.toFixed(1));
+        chart.data.datasets[0].data.push(value);
+        chart.data.datasets[1].data.push(target);
+
+        // Remove old data points if we have too many
+        if (chart.data.labels.length > maxDataPoints) {
+          chart.data.labels.shift();
+          chart.data.datasets[0].data.shift();
+          chart.data.datasets[1].data.shift();
+        }
+
+        chart.update("none");
+      }
+
+      // Update data display
+      function updateDataDisplay(data) {
+        document.getElementById("currentPWM").textContent =
+          data.pwm.toFixed(1) + "%";
+        document.getElementById("currentSpeed").textContent =
+          data.speed.toFixed(0) + " RPM";
+        document.getElementById("targetValue").textContent =
+          data.target.toFixed(1);
+        document.getElementById("errorValue").textContent =
+          data.error.toFixed(2);
+      }
+
+      // Switch between PWM and Speed view
+      function switchView(view) {
+        currentView = view;
+
+        // Update button states
+        document.querySelectorAll(".view-toggle button").forEach((btn) => {
+          btn.classList.remove("active");
+        });
+        event.target.classList.add("active");
+
+        // Update chart configuration
+        chart.data.datasets[0].label =
+          view === "pwm" ? "PWM (%)" : "Speed (RPM)";
+        chart.options.scales.y.title.text =
+          view === "pwm" ? "PWM (%)" : "Speed (RPM)";
+        chart.options.scales.y.max = view === "pwm" ? 100 : 3000;
+
+        // Clear existing data
+        chart.data.labels = [];
+        chart.data.datasets[0].data = [];
+        chart.data.datasets[1].data = [];
+        chart.update();
+      }
+
+      // Capture graph (save as image)
+      function captureGraph() {
+        const canvas = document.getElementById("motorChart");
+        const link = document.createElement("a");
+        link.download = `motor-${currentView}-${new Date()
+          .toISOString()
+          .slice(0, 19)}.png`;
+        link.href = canvas.toDataURL();
+        link.click();
+      }
+
+      // Toggle pause/resume
+      function togglePause() {
+        isPaused = !isPaused;
+        const btn = document.getElementById("pauseBtn");
+        if (isPaused) {
+          btn.textContent = "▶️ Resume";
+          btn.classList.remove("pause");
+          btn.classList.add("capture");
+        } else {
+          btn.textContent = "⏸️ Pause";
+          btn.classList.remove("capture");
+          btn.classList.add("pause");
+        }
+      }
+
+      // Add this new function after the updatePID function:
+      function sendSinglePID(parameter) {
+        const value = document.getElementById(parameter).value;
+
+        const pidData = {
+          type: "pid_single",
+          parameter: parameter,
+          value: parseFloat(value),
+        };
+
+        // Send to ESP32 via WebSocket
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify(pidData));
+        }
+
+        console.log(`${parameter.toUpperCase()} Updated:`, pidData);
+
+        // Visual feedback
+        const button = event.target;
+        const originalText = button.textContent;
+        button.textContent = "✓";
+        button.style.background = "#68d391";
+        setTimeout(() => {
+          button.textContent = originalText;
+          button.style.background = "#718096";
+        }, 1000);
+      }
+
+      // Calibrate (reset to 0)
+      function calibrate() {
+        // Reset PID values
+        document.getElementById("kp").value = "0";
+        document.getElementById("ki").value = "0";
+        document.getElementById("kd").value = "0";
+
+        // Send calibration command to ESP32
+        const calibrateData = {
+          type: "calibrate",
+          action: "reset",
+        };
+
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify(calibrateData));
+        }
+
+        // Clear chart
+        chart.data.labels = [];
+        chart.data.datasets[0].data = [];
+        chart.data.datasets[1].data = [];
+        chart.update();
+
+        // Reset mock time
+        mockTime = 0;
+
+        console.log("System calibrated - all values reset to 0");
+      }
+    </script>
+  </body>
+</html>

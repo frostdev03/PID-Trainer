@@ -1,0 +1,552 @@
+// "use client" // Ini sudah ada di file Anda
+
+import { useEffect, useRef, useState } from "react"
+
+export default function MotorControlDashboard() {
+  const chartRef = useRef<HTMLCanvasElement>(null)
+  const [chart, setChart] = useState<any>(null)
+  const [connectionStatus, setConnectionStatus] = useState("Disconnected")
+  const wsRef = useRef<WebSocket | null>(null) // Ref untuk menyimpan instance WebSocket
+
+  // Form states (akan disinkronkan dengan ESP32)
+  const [kp, setKp] = useState("0.6") // Nilai default dari ESP32
+  const [ki, setKi] = useState("0.0001")
+  const [kd, setKd] = useState("0.25")
+  const [target, setTarget] = useState("0")
+
+  // Info display states (dari ESP32)
+  const [targetDeg, setTargetDeg] = useState(0)
+  const [motorDeg, setMotorDeg] = useState(0)
+  const [errorValue, setErrorValue] = useState(0)
+  const [pidOutput, setPidOutput] = useState(0)
+
+  // Inisialisasi Chart dan WebSocket saat komponen dimuat
+  useEffect(() => {
+    // Pastikan Chart.js sudah dimuat (dari CDN di HTML)
+    if (window.Chart) {
+      initChart()
+      connectWebSocket()
+    } else {
+      // Jika belum dimuat, tunggu hingga dimuat
+      const script = document.createElement("script")
+      script.src = "https://cdn.jsdelivr.net/npm/chart.js"
+      script.onload = () => {
+        initChart()
+        connectWebSocket()
+      }
+      document.head.appendChild(script)
+    }
+
+    // Cleanup function
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close()
+      }
+    }
+  }, []) // Dependency array kosong, hanya berjalan sekali saat mount
+
+  const initChart = () => {
+    if (!chartRef.current || !window.Chart) return
+
+    const ctx = chartRef.current.getContext("2d")
+
+    const newChart = new window.Chart(ctx, {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: "Target Deg",
+            data: [],
+            borderColor: "#ff6b6b",
+            backgroundColor: "transparent",
+            borderWidth: 2,
+            fill: false,
+          },
+          {
+            label: "Motor Deg",
+            data: [],
+            borderColor: "#4ecdc4",
+            backgroundColor: "transparent",
+            borderWidth: 2,
+            fill: false,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 0 }, // Matikan animasi untuk real-time
+        scales: {
+          x: {
+            title: { display: true, text: "Time (s)" },
+          },
+          y: {
+            title: { display: true, text: "Degrees (°)" },
+          },
+        },
+      },
+    })
+    setChart(newChart)
+  }
+
+  const connectWebSocket = () => {
+    // Ganti dengan alamat IP ESP32 Anda (default AP IP)
+    const wsUrl = `ws://${window.location.hostname}:81` // Menggunakan hostname saat ini
+
+    try {
+      const ws = new WebSocket(wsUrl)
+      wsRef.current = ws // Simpan instance WebSocket di ref
+
+      ws.onopen = () => {
+        setConnectionStatus("Connected")
+        console.log("WebSocket connected")
+      }
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          updateChart(data)
+          updateInfo(data)
+          // Sinkronisasi nilai PID dan Target dari ESP32 ke UI
+          setKp(data.kp.toFixed(3)) // Kp 3 desimal
+          setKi(data.ki.toFixed(5)) // Ki 5 desimal
+          setKd(data.kd.toFixed(3)) // Kd 3 desimal
+          setTarget(data.target.toFixed(0)) // Target 0 desimal
+        } catch (e) {
+          console.error("Error parsing WebSocket data:", e)
+        }
+      }
+
+      ws.onclose = () => {
+        setConnectionStatus("Disconnected")
+        console.log("WebSocket disconnected")
+        // Coba sambung ulang setelah 3 detik
+        setTimeout(connectWebSocket, 3000)
+      }
+
+      ws.onerror = (error) => {
+        console.error("WebSocket error:", error)
+        setConnectionStatus("Disconnected")
+      }
+    } catch (e) {
+      console.error("Failed to connect WebSocket:", e)
+      setConnectionStatus("Disconnected")
+    }
+  }
+
+  const updateChart = (data: any) => {
+    if (!chart) return
+
+    const maxDataPoints = 50 // Jumlah titik data maksimum di grafik
+
+    // Tambahkan titik data baru
+    chart.data.labels.push(data.time_s || (chart.data.labels.length * 0.1).toFixed(1)) // Gunakan time_s dari ESP32 jika ada, atau buat sendiri
+    chart.data.datasets[0].data.push(data.target)
+    chart.data.datasets[1].data.push(data.motor)
+
+    // Hapus titik data lama jika terlalu banyak
+    if (chart.data.labels.length > maxDataPoints) {
+      chart.data.labels.shift()
+      chart.data.datasets[0].data.shift()
+      chart.data.datasets[1].data.shift()
+    }
+
+    chart.update("none") // Perbarui grafik tanpa animasi
+  }
+
+  const updateInfo = (data: any) => {
+    setTargetDeg(data.target)
+    setMotorDeg(data.motor)
+    setErrorValue(data.error)
+    setPidOutput(data.pid_out)
+  }
+
+  const captureGraph = () => {
+    if (!chartRef.current) return
+    const link = document.createElement("a")
+    link.download = `motor-data-${new Date().toISOString().slice(0, 19)}.png`
+    link.href = chartRef.current.toDataURL()
+    link.click()
+  }
+
+  const togglePause = () => {
+    // Logika pause/resume hanya untuk tampilan grafik, tidak mempengaruhi ESP32
+    // Jika Anda ingin menghentikan motor dari web, Anda perlu mengirim perintah ke ESP32
+    // setIsPaused(!isPaused) // Jika ingin menghentikan update grafik
+    console.log("Pause/Resume functionality not fully implemented for real-time data streaming.")
+    alert("Pause/Resume hanya menghentikan update grafik di browser. Untuk menghentikan motor, kirim target 0 atau kalibrasi.")
+  }
+
+  const sendSinglePID = (parameter: string) => {
+    const value = parameter === "kp" ? kp : parameter === "ki" ? ki : kd
+    const payload = {
+      type: "pid_single",
+      parameter: parameter,
+      value: Number.parseFloat(value),
+    }
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(payload))
+      console.log(`Sending ${parameter.toUpperCase()} update:`, payload)
+    } else {
+      console.warn("WebSocket not connected. Cannot send PID update.")
+    }
+  }
+
+  const sendTarget = () => {
+    const payload = {
+      type: "target_set",
+      value: Number.parseFloat(target),
+    }
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(payload))
+      console.log("Sending Target update:", payload)
+    } else {
+      console.warn("WebSocket not connected. Cannot send Target update.")
+    }
+  }
+
+  const calibrate = () => {
+    const payload = {
+      type: "calibrate",
+      action: "reset",
+    }
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(payload))
+      console.log("Sending Calibrate command:", payload)
+    } else {
+      console.warn("WebSocket not connected. Cannot send Calibrate command.")
+    }
+    // Reset form fields immediately for visual feedback
+    setTarget("0")
+    setKp("0")
+    setKi("0")
+    setKd("0")
+    if (chart) {
+      chart.data.labels = []
+      chart.data.datasets[0].data = []
+      chart.data.datasets[1].data = []
+      chart.update()
+    }
+  }
+
+  return (
+    <div
+      style={{
+        fontFamily: "Arial, sans-serif",
+        margin: "20px",
+        background: "#f5f5f5",
+        minHeight: "100vh",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: "1200px",
+          margin: "0 auto",
+          background: "white",
+          padding: "20px",
+          border: "1px solid #ddd",
+        }}
+      >
+        <h1 style={{ textAlign: "center", marginBottom: "20px" }}>Motor Control Dashboard</h1>
+
+        <div
+          style={{
+            textAlign: "center",
+            padding: "5px",
+            marginBottom: "20px",
+            border: "1px solid #ddd",
+            background: connectionStatus === "Connected" ? "#d4edda" : "#f8d7da",
+          }}
+        >
+          {connectionStatus}
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: window.innerWidth > 768 ? "2fr 1fr" : "1fr",
+            gap: "20px",
+          }}
+        >
+          <div
+            style={{
+              border: "1px solid #ddd",
+              padding: "15px",
+            }}
+          >
+            <div style={{ marginBottom: "10px" }}>
+              <button
+                onClick={captureGraph}
+                style={{
+                  padding: "6px 12px",
+                  border: "1px solid #ccc",
+                  background: "#f9f9f9",
+                  cursor: "pointer",
+                  marginRight: "10px",
+                }}
+              >
+                Capture
+              </button>
+              <button
+                onClick={togglePause}
+                style={{
+                  padding: "6px 12px",
+                  border: "1px solid #ccc",
+                  background: "#f9f9f9",
+                  cursor: "pointer",
+                }}
+              >
+                {/* isPaused ? "Resume" : "Pause" */} Pause (Not fully functional)
+              </button>
+            </div>
+
+            <div style={{ height: "400px", marginTop: "10px" }}>
+              <canvas ref={chartRef}></canvas>
+            </div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid #ddd",
+              padding: "15px",
+            }}
+          >
+            <div
+              style={{
+                marginBottom: "20px",
+                borderBottom: "1px solid #eee",
+                paddingBottom: "15px",
+              }}
+            >
+              <h3 style={{ marginBottom: "10px" }}>PID Parameters</h3>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  marginBottom: "8px",
+                  gap: "10px",
+                }}
+              >
+                <label style={{ width: "60px", display: "inline-block" }}>Kp:</label>
+                <input
+                  type="number"
+                  step="0.001" // Sesuaikan step untuk presisi
+                  value={kp}
+                  onChange={(e) => setKp(e.target.value)}
+                  style={{
+                    width: "80px",
+                    padding: "4px",
+                    border: "1px solid #ccc",
+                    backgroundColor: "lightgray", // Indikasi read-only
+                  }}
+                  readOnly // Karena nilai diatur oleh ESP32
+                />
+                <button
+                  onClick={() => sendSinglePID("kp")}
+                  style={{
+                    padding: "6px 12px",
+                    border: "1px solid #ccc",
+                    background: "#f9f9f9",
+                    cursor: "pointer",
+                  }}
+                >
+                  Send
+                </button>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  marginBottom: "8px",
+                  gap: "10px",
+                }}
+              >
+                <label style={{ width: "60px", display: "inline-block" }}>Ki:</label>
+                <input
+                  type="number"
+                  step="0.00001" // Sesuaikan step untuk presisi
+                  value={ki}
+                  onChange={(e) => setKi(e.target.value)}
+                  style={{
+                    width: "80px",
+                    padding: "4px",
+                    border: "1px solid #ccc",
+                    backgroundColor: "lightgray", // Indikasi read-only
+                  }}
+                  readOnly // Karena nilai diatur oleh ESP32
+                />
+                <button
+                  onClick={() => sendSinglePID("ki")}
+                  style={{
+                    padding: "6px 12px",
+                    border: "1px solid #ccc",
+                    background: "#f9f9f9",
+                    cursor: "pointer",
+                  }}
+                >
+                  Send
+                </button>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  marginBottom: "8px",
+                  gap: "10px",
+                }}
+              >
+                <label style={{ width: "60px", display: "inline-block" }}>Kd:</label>
+                <input
+                  type="number"
+                  step="0.001" // Sesuaikan step untuk presisi
+                  value={kd}
+                  onChange={(e) => setKd(e.target.value)}
+                  style={{
+                    width: "80px",
+                    padding: "4px",
+                    border: "1px solid #ccc",
+                    backgroundColor: "lightgray", // Indikasi read-only
+                  }}
+                  readOnly // Karena nilai diatur oleh ESP32
+                />
+                <button
+                  onClick={() => sendSinglePID("kd")}
+                  style={{
+                    padding: "6px 12px",
+                    border: "1px solid #ccc",
+                    background: "#f9f9f9",
+                    cursor: "pointer",
+                  }}
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+
+            <div
+              style={{
+                marginBottom: "20px",
+                borderBottom: "1px solid #eee",
+                paddingBottom: "15px",
+              }}
+            >
+              <h3 style={{ marginBottom: "10px" }}>Target</h3>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  marginBottom: "8px",
+                  gap: "10px",
+                }}
+              >
+                <label style={{ width: "60px", display: "inline-block" }}>Target:</label>
+                <input
+                  type="number"
+                  step="1"
+                  value={target}
+                  onChange={(e) => setTarget(e.target.value)}
+                  style={{
+                    width: "80px",
+                    padding: "4px",
+                    border: "1px solid #ccc",
+                    backgroundColor: "lightgray", // Indikasi read-only
+                  }}
+                  readOnly // Karena nilai diatur oleh ESP32
+                />
+                <button
+                  onClick={sendTarget}
+                  style={{
+                    padding: "6px 12px",
+                    border: "1px solid #ccc",
+                    background: "#f9f9f9",
+                    cursor: "pointer",
+                  }}
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+
+            <div
+              style={{
+                marginBottom: "20px",
+                borderBottom: "1px solid #eee",
+                paddingBottom: "15px",
+              }}
+            >
+              <button
+                onClick={calibrate}
+                style={{
+                  width: "100%",
+                  padding: "10px",
+                  background: "#ff6b6b",
+                  color: "white",
+                  border: "1px solid #ff5252",
+                  cursor: "pointer",
+                }}
+              >
+                Calibrate (Reset All to 0)
+              </button>
+            </div>
+
+            <div>
+              <h3 style={{ marginBottom: "10px" }}>System Info</h3>
+              <div
+                style={{
+                  background: "#f9f9f9",
+                  border: "1px solid #ddd",
+                  padding: "10px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: "5px",
+                  }}
+                >
+                  <span>Target Deg:</span>
+                  <span>{targetDeg.toFixed(1)}°</span>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: "5px",
+                  }}
+                >
+                  <span>Motor Deg:</span>
+                  <span>{motorDeg.toFixed(1)}°</span>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: "5px",
+                  }}
+                >
+                  <span>Error:</span>
+                  <span>{errorValue.toFixed(1)}°</span>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: "5px",
+                  }}
+                >
+                  <span>PID Output:</span>
+                  <span>{pidOutput.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
