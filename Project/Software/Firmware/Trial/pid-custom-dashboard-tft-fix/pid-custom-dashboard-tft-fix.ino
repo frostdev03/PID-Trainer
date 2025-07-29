@@ -463,7 +463,7 @@ void displayValues() {
 
 
   // --- Target & Motor (Ukuran teks yang disesuaikan) ---
-  tft.setTextSize(2); 
+  tft.setTextSize(1.5); 
 
   // Teks "Target:"
   tft.setCursor(paddingX, currentY);

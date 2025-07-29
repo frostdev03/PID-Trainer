@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PID Trainer</title>
+<script src="tailwind.js"></script>
+<script src="chart.min.js"></script>
+</script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .main-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(59, 130, 246, 0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #93c5fd 0%, #60a5fa 100%);
+            color: #1e40af;
+            padding: 5px 10px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+        }
+        
+        .header .subtitle {
+            font-size: 1.1rem;
+            font-weight: 500;
+            opacity: 0.8;
+            margin-bottom: 4px;
+        }
+        
+        .header .university {
+            font-size: 1rem;
+            font-weight: 400;
+            opacity: 0.7;
+        }
+
+        
+.content-wrapper {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 20px;
+    padding: 20px;
+}
+
+        
+        .chart-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .chart-controls {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 12px;
+            justify-content: flex-end;
+        }
+        
+        .chart-controls button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+        }
+        
+        .pause-btn {
+            background: #fef3c7;
+            color: #92400e;
+            border: 2px solid #fbbf24;
+        }
+        
+        .pause-btn:hover {
+            background: #fde68a;
+            transform: translateY(-1px);
+        }
+        
+        .pause-btn.paused {
+            background: #fed7aa;
+            color: #ea580c;
+            border-color: #fb923c;
+        }
+        
+        .screenshot-btn {
+            background: #d1fae5;
+            color: #065f46;
+            border: 2px solid #34d399;
+        }
+        
+        .screenshot-btn:hover {
+            background: #a7f3d0;
+            transform: translateY(-1px);
+        }
+        
+        .chart-container {
+            background: #f8fafc;
+            border-radius: 15px;
+            padding: 25px;
+            border: 2px solid #e0f2fe;
+        }
+        
+        .chart-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #1e40af;
+		margin-left: 5px;
+            text-align: center;
+        }
+        
+        .control-panel {
+            width: 380px;
+            background: #f8fafc;
+            border-radius: 15px;
+            padding: 15px;
+            border: 2px solid #e0f2fe;
+        }
+        
+        .toggle-section {
+            background: white;
+            padding: 12px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            border: 2px solid #dbeafe;
+        }
+        
+        .toggle-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .toggle-label {
+            font-weight: 600;
+            color: #1e40af;
+            font-size: 1rem;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            width: 90px;
+            height: 40px;
+            background: #e5e7eb;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .chart-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+        .toggle-switch.active {
+            background: #93c5fd;
+        }
+        
+        .toggle-slider {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: 32px;
+    height: 32px;
+    background: white;
+    border-radius: 50%;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    font-weight: bold;
+    color: #1e40af;
+}
+
+.toggle-switch.active .toggle-slider {
+    transform: translateX(48px);
+    background: #3b82f6;
+    color: white;
+}
+
+        
+        .mode-indicator {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        
+        .mode-view {
+            color: #6b7280;
+        }
+        
+        .mode-edit {
+            color: #3b82f6;
+        }
+        
+        .parameters-section {
+            background: white;
+            padding: 12px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            border: 2px solid #dbeafe;
+        }
+        
+        .section-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #1e40af;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .input-group {
+            margin-bottom: 10px;
+        }
+        
+        .input-group label {
+            display: block;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 6px;
+            font-size: 0.9rem;
+        }
+        
+        .input-group input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 2px solid #e0f2fe;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            background: white;
+        }
+        
+        .input-group input:focus {
+            outline: none;
+            border-color: #60a5fa;
+            box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1);
+        }
+        
+        .input-group input:disabled {
+            background: #f1f5f9;
+            color: #94a3b8;
+            cursor: not-allowed;
+            border-color: #e2e8f0;
+        }
+        
+        .actions-section {
+            background: white;
+            padding: 12px;
+            border-radius: 12px;
+            border: 2px solid #dbeafe;
+        }
+        
+        .action-btn {
+            width: 100%;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+	    .button-row {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 8px;
+    }
+
+    .button-row .action-btn {
+        flex: 1;
+        margin-bottom: 0;
+    }
+        
+        .btn-primary {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 2px solid #93c5fd;
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            background: #bfdbfe;
+            transform: translateY(-1px);
+        }
+        
+        .btn-danger {
+            background: #fecaca;
+            color: #dc2626;
+            border: 2px solid #f87171;
+        }
+        
+        .btn-danger:hover {
+            background: #fca5a5;
+            transform: translateY(-1px);
+        }
+        
+        .action-btn:disabled {
+            background: #f1f5f9;
+            color: #94a3b8;
+            cursor: not-allowed;
+            transform: none;
+            border-color: #e2e8f0;
+        }
+        
+        @media (max-width: 1024px) {
+            .content-wrapper {
+                /*flex-direction: column;*/
+		        align-items: stretch;
+
+            }
+            
+            .control-panel {
+                width: 100%;
+			        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        height: 100%;
+            }
+            
+            .chart-controls {
+                justify-content: center;
+            }
+		.pid-info {
+        margin-top: 10px;
+        padding: 10px;
+        background-color: #f3f4f6;
+        border-radius: 8px;
+        font-size: 0.85rem;
+        color: #1e3a8a;
+    }
+
+    .pid-info-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 6px;
+    }
+
+    .pid-info-row span {
+        min-width: 70px;
+        display: inline-block;
+        text-align: right;
+    }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <!-- Header -->
+        <div class="header">
+            <h1>PID Trainer</h1>
+            <div class="subtitle">D4 Teknik Elektronik</div>
+            <div class="university">Universitas Negeri Yogyakarta</div>
+        </div>
+        
+        <!-- Content -->
+        <div class="content-wrapper">
+            <!-- Chart Section -->
+            <div class="chart-section">
+                <!-- Chart Controls -->
+                <!-- Chart Controls dengan Judul di Kiri -->
+<div class="chart-controls justify-between items-center">
+    <div class="chart-title text-lg font-bold text-blue-800">Grafik Sudut Motor</div>
+
+    <div class="flex gap-2">
+
+        <button id="pauseChart" class="pause-btn">Pause Grafik</button>
+        <button id="screenshotChart" class="screenshot-btn">Screenshot</button>
+<div class="toggle-switch" id="toggleSwitch">
+        <div class="toggle-slider">
+            <span id="toggleStatusText" class="toggle-status">View</span>
+        </div>
+    </div>
+    </div>
+</div>
+
+<!-- Chart Container -->
+<div class="chart-container">
+    <canvas id="angleChart" height="166"></canvas>
+</div>
+
+            </div>
+            
+            <!-- Control Panel -->
+            <div class="control-panel">
+                
+                <!-- Parameters -->
+                <div class="parameters-section">
+                    <div class="section-title">Parameter PID</div>
+                    
+                    <div class="input-group">
+                        <label for="inputKp">Konstanta Kp</label>
+                        <input type="number" id="inputKp" value="0.6" step="any">
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="inputKi">Konstanta Ki</label>
+                        <input type="number" id="inputKi" value="0.0001" step="any">
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="inputKd">Konstanta Kd</label>
+                        <input type="number" id="inputKd" value="0.25" step="any">
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="inputTargetAngle">Sudut Target (°)</label>
+                        <input type="number" id="inputTargetAngle" value="0" step="any">
+                    </div>
+<div class="button-row">
+  <button id="setPidButton" class="action-btn btn-primary">Set Parameter</button>
+  <button id="setTargetButton" class="action-btn btn-primary">Set Sudut</button>
+</div>
+
+                    <button id="calibrateButton" class="action-btn btn-danger">Kalibrasi Sistem</button>
+                </div>
+<div id="pidInfo" class="pid-info">
+    <div class="pid-info-row">
+        <div><strong>Kp:</strong> <span id="infoKp">-</span></div>
+        <div><strong>Ki:</strong> <span id="infoKi">-</span></div>
+        <div><strong>Kd:</strong> <span id="infoKd">-</span></div>
+    </div>
+    <div class="pid-info-row">
+        <div><strong>Output PID:</strong> <span id="infoOut">-</span></div>
+        <div><strong>Error:</strong> <span id="infoErr">-</span></div>
+    </div>
+</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ws = new WebSocket('ws://192.168.4.1:81/');
+        
+        // Elemen input
+        const inputKp = document.getElementById('inputKp');
+        const inputKi = document.getElementById('inputKi');
+        const inputKd = document.getElementById('inputKd');
+
+    const infoKp = document.getElementById('infoKp');
+    const infoKi = document.getElementById('infoKi');
+    const infoKd = document.getElementById('infoKd');
+    const infoOut = document.getElementById('infoOut');
+    const infoErr = document.getElementById('infoErr');
+
+        const inputTargetAngle = document.getElementById('inputTargetAngle');
+        
+        // Tombol
+        const setPidButton = document.getElementById('setPidButton');
+        const setTargetButton = document.getElementById('setTargetButton');
+        const calibrateButton = document.getElementById('calibrateButton');
+        const pauseButton = document.getElementById('pauseChart');
+        const screenshotButton = document.getElementById('screenshotChart');
+        
+        // Toggle elements
+        const toggleSwitch = document.getElementById('toggleSwitch');
+        const modeText = document.getElementById('modeText');
+        const inputFields = [inputKp, inputKi, inputKd, inputTargetAngle];
+        const controlButtons = [setPidButton, setTargetButton];
+        
+        let isEditMode = false;
+        let isPaused = false;
+        
+        // Toggle functionality
+toggleSwitch.addEventListener('click', () => {
+    isEditMode = !isEditMode;
+    toggleSwitch.classList.toggle('active', isEditMode);
+
+    const statusText = document.getElementById('toggleStatusText');
+    statusText.textContent = isEditMode ? 'Edit' : 'View';
+
+    setEditMode(isEditMode);
+    sendData('mode', null, isEditMode ? 'edit' : 'view');
+});
+
+
+        // Pause functionality
+        pauseButton.addEventListener('click', () => {
+            isPaused = !isPaused;
+            pauseButton.classList.toggle('paused', isPaused);
+            pauseButton.textContent = isPaused ? 'Resume Grafik' : 'Pause Grafik';
+        });
+
+        // Screenshot functionality
+        screenshotButton.addEventListener('click', () => {
+            const canvas = document.getElementById('angleChart');
+            const link = document.createElement('a');
+            link.download = `PID_Chart_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+        });
+
+        function setEditMode(enabled) {
+            inputFields.forEach(el => el.disabled = !enabled);
+            controlButtons.forEach(btn => btn.disabled = !enabled);
+        }
+
+        // Default ke view-only saat load
+        setEditMode(false);
+
+        // Fungsi untuk mengirim data melalui WebSocket
+        function sendData(type, parameter, value) {
+            const data = { type: type };
+            if (parameter) data.parameter = parameter;
+            if (value !== undefined) data.value = value;
+            ws.send(JSON.stringify(data));
+        }
+
+        // Event listener untuk pesan dari WebSocket
+        ws.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                
+                // Update input fields to reflect current values
+                inputKp.value = data.kp !== undefined ? data.kp : inputKp.value;
+                inputKi.value = data.ki !== undefined ? data.ki : inputKi.value;
+                inputKd.value = data.kd !== undefined ? data.kd : inputKd.value;
+                
+                if (data.target_sync !== undefined && !isEditMode) {
+                    inputTargetAngle.value = data.target_sync;
+                }
+                
+                // Only update chart if not paused
+                if (!isPaused) {
+                    updateChart(data.target ?? 0, data.motor ?? 0);
+                }
+		if (data.kp !== undefined) infoKp.textContent = data.kp.toFixed(4);
+            if (data.ki !== undefined) infoKi.textContent = data.ki.toFixed(4);
+            if (data.kd !== undefined) infoKd.textContent = data.kd.toFixed(4);
+            if (data.pid_out !== undefined) infoOut.textContent = data.pid_out.toFixed(2);
+            if (data.error !== undefined) infoErr.textContent = data.error.toFixed(2);
+            } catch (e) {
+                console.error("Failed to parse JSON:", e, event.data);
+            }
+        };
+
+        // Event listeners untuk tombol
+        setPidButton.onclick = function() {
+            sendData('pid_single', 'kp', parseFloat(inputKp.value));
+            sendData('pid_single', 'ki', parseFloat(inputKi.value));
+            sendData('pid_single', 'kd', parseFloat(inputKd.value));
+            console.log("Mengirim Kp, Ki, Kd:", inputKp.value, inputKi.value, inputKd.value);
+        };
+
+        setTargetButton.onclick = function() {
+            sendData('target_set', null, parseFloat(inputTargetAngle.value));
+            console.log("Mengirim Sudut Target:", inputTargetAngle.value);
+        };
+
+        calibrateButton.onclick = function() {
+            if (confirm("Apakah Anda yakin ingin melakukan kalibrasi? Ini akan mereset semua parameter PID dan sudut target ke 0.")) {
+                sendData('calibrate');
+                console.log("Mengirim perintah kalibrasi.");
+            }
+        };
+
+        ws.onopen = function(event) {
+            console.log("WebSocket terhubung.");
+        };
+
+        ws.onclose = function(event) {
+            console.log("WebSocket terputus:", event);
+            setTimeout(() => {
+                console.log("Mencoba menyambungkan kembali WebSocket...");
+                new WebSocket('ws://192.168.4.1:81/');
+            }, 5000);
+        };
+
+        ws.onerror = function(error) {
+            console.error("WebSocket Error:", error);
+        };
+
+        // Chart.js setup
+        const ctx = document.getElementById('angleChart').getContext('2d');
+        const angleChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Target (°)',
+                        data: [],
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.2,
+                        borderWidth: 3
+                    },
+                    {
+                        label: 'Sudut Motor (°)',
+                        data: [],
+                        borderColor: '#f59e0b',
+                        backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                        tension: 0.2,
+                        borderWidth: 3
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                animation: false,
+                scales: {
+                    y: {
+                        suggestedMin: 0,
+                        suggestedMax: 360,
+                        title: {
+                            display: true,
+                            text: 'Derajat (°)',
+                            font: { weight: 'bold' },
+                            color: '#1e40af'
+                        },
+                        grid: {
+                            color: '#e0f2fe'
+                        },
+                        ticks: {
+                            color: '#374151'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Waktu',
+                            font: { weight: 'bold' },
+                            color: '#1e40af'
+                        },
+                        grid: {
+                            color: '#e0f2fe'
+                        },
+                        ticks: {
+                            color: '#374151'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            font: { weight: 'bold' },
+                            usePointStyle: true,
+                            color: '#374151'
+                        }
+                    }
+                }
+            }
+        });
+
+        function updateChart(target, motor) {
+            const maxPoints = 100;
+            const timeLabel = new Date().toLocaleTimeString();
+            
+            angleChart.data.labels.push(timeLabel);
+            angleChart.data.datasets[0].data.push(target);
+            angleChart.data.datasets[1].data.push(motor);
+            
+            if (angleChart.data.labels.length > maxPoints) {
+                angleChart.data.labels.shift();
+                angleChart.data.datasets[0].data.shift();
+                angleChart.data.datasets[1].data.shift();
+            }
+            
+            angleChart.update('none');
+        }
+    </script>
+</body>
+</html>
