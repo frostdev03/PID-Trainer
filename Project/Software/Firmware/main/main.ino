@@ -1,19 +1,22 @@
-#include <Wire.h> // Untuk komunikasi I2C (AS5600 dan OLED/TFT)
-#include <Adafruit_GFX.h> // Library grafis dasar untuk TFT
-#include <Adafruit_ST7735.h> // Driver spesifik untuk TFT ST7735
+#include <Wire.h>             // Untuk komunikasi I2C (AS5600 dan OLED/TFT)
+#include <Adafruit_GFX.h>     // Library grafis dasar untuk TFT
+#include <Adafruit_ST7735.h>  // Driver spesifik untuk TFT ST7735
 
 // --- Library Baru untuk Wi-Fi dan WebServer (Async) ---
-#include <WiFi.h> // Untuk fungsionalitas Wi-Fi (AP mode)
-#include <ESPAsyncWebServer.h> // Untuk membuat server HTTP Asynchronous
-#include <DNSServer.h> // Untuk Captive Portal (mengarahkan DNS)
-#include <SPIFFS.h> // Untuk sistem file SPIFFS (menyimpan halaman web)
-#include <WebSocketsServer.h> // Library untuk WebSocket Server
-#include <ArduinoJson.h> // Library untuk parsing JSON
+#include <WiFi.h>               // Untuk fungsionalitas Wi-Fi (AP mode)
+#include <ESPAsyncWebServer.h>  // Untuk membuat server HTTP Asynchronous
+#include <DNSServer.h>          // Untuk Captive Portal (mengarahkan DNS)
+#include <SPIFFS.h>             // Untuk sistem file SPIFFS (menyimpan halaman web)
+#include <WebSocketsServer.h>   // Library untuk WebSocket Server
+#include <ArduinoJson.h>        // Library untuk parsing JSON
+
+#include "KalmanFilter.h"
+KalmanFilter kalman;
 
 // --- TFT Setup ---
-#define TFT_CS    5
-#define TFT_RST   4
-#define TFT_DC    15
+#define TFT_CS 5
+#define TFT_RST 4
+#define TFT_DC 15
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
 // --- AS5600 (I2C Address) ---
@@ -25,14 +28,17 @@ Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
 // --- Rotary Encoder ---
 #define CLK 32
-#define DT  25
-#define SW  13 // Rotary Encoder Button
+#define DT 25
+#define SW 13  // Rotary Encoder Button
 
 // --- BTS7960 Motor Driver ---
 #define RPWM 2
 #define LPWM 0
 #define REN 27
 #define LEN 14
+
+// kalman 
+float lastAngle = 0.0;
 
 // --- Variabel Global AS5600 ---
 int magnetStatus = 0;
@@ -57,17 +63,17 @@ bool isEditMode = false;  // flag mode web
 int lastCLK = HIGH;
 bool lastSW = HIGH;
 unsigned long lastButtonPress = 0;
-unsigned long buttonPressStartTime = 0; // Waktu tombol ditekan (bukan hanya hold)
-const unsigned long HOLD_DURATION = 3000; // Durasi hold untuk kalibrasi (3 detik)
-bool isCalibrating = false; // Flag untuk status kalibrasi
-bool buttonWasHeld = false; // Flag untuk melacak apakah tombol sudah dianggap ditahan
+unsigned long buttonPressStartTime = 0;    // Waktu tombol ditekan (bukan hanya hold)
+const unsigned long HOLD_DURATION = 3000;  // Durasi hold untuk kalibrasi (3 detik)
+bool isCalibrating = false;                // Flag untuk status kalibrasi
+bool buttonWasHeld = false;                // Flag untuk melacak apakah tombol sudah dianggap ditahan
 
-float rotaryStep = 0.01; // Step default untuk derajat target
+float rotaryStep = 0.01;  // Step default untuk derajat target
 
 // --- Variabel PID ---
-float Kp = 0.6;   // Proportional gain (sesuaikan)
-float Ki = 0.0001; // Integral gain (sesuaikan)
-float Kd = 0.25;  // Derivative gain (sesuaikan)
+float Kp = 0.6;     // Proportional gain (sesuaikan)
+float Ki = 0.0001;  // Integral gain (sesuaikan)
+float Kd = 0.25;    // Derivative gain (sesuaikan)
 
 float error = 0;
 float previousError = 0;
@@ -75,7 +81,7 @@ float integral = 0;
 float outputPID = 0;
 
 unsigned long lastPIDTime = 0;
-int pidInterval = 10; // Interval perhitungan PID (ms)
+int pidInterval = 10;  // Interval perhitungan PID (ms)
 
 // --- Variabel tampilan sebelumnya untuk deteksi perubahan ---
 float lastTargetAngle = -999;
@@ -93,20 +99,20 @@ enum RotaryMode {
   MODE_KI,
   MODE_KD
 };
-RotaryMode currentMode = MODE_ANGLE; // Mode awal adalah mengatur derajat
+RotaryMode currentMode = MODE_ANGLE;  // Mode awal adalah mengatur derajat
 
 RotaryMode lastMode = MODE_ANGLE;
 bool shouldUpdateTFT = true;
 
 // --- Variabel Wi-Fi AP dan WebServer ---
-const char *ssid = "PID Traianer"; // Nama Wi-Fi AP
-const char *password = "password123"; // Password Wi-Fi AP (min 8 karakter)
-IPAddress apIP(192, 168, 4, 1); // Alamat IP untuk AP
-IPAddress netMsk(255, 255, 255, 0); // Subnet mask
+const char *ssid = "PID Trainer";    // Nama Wi-Fi AP
+const char *password = "motordc";    // Password Wi-Fi AP (min 8 karakter)
+IPAddress apIP(192, 168, 4, 1);      // Alamat IP untuk AP
+IPAddress netMsk(255, 255, 255, 0);  // Subnet mask
 
 DNSServer dnsServer;
-AsyncWebServer server(80); // WebServer di port 80 - Menggunakan AsyncWebServer!
-WebSocketsServer webSocket = WebSocketsServer(81); // WebSocket Server di port 81
+AsyncWebServer server(80);                          // WebServer di port 80 - Menggunakan AsyncWebServer!
+WebSocketsServer webSocket = WebSocketsServer(81);  // WebSocket Server di port 81
 
 // --- Fungsi Prototype ---
 void checkMagnetPresence();
@@ -128,23 +134,23 @@ void setupCaptivePortal();
 
 // --- Fungsi WebSocket ---
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length);
-void sendPIDDataToWeb(); // Fungsi untuk mengirim data PID ke web
+void sendPIDDataToWeb();  // Fungsi untuk mengirim data PID ke web
 
 // Fungsi bantuan untuk mendapatkan lebar teks dengan ukuran font tertentu
 int getTextWidth(String text, int textSize) {
-  return text.length() * 6 * textSize; // 6 piksel per karakter (5px char + 1px spacing)
+  return text.length() * 6 * textSize;  // 6 piksel per karakter (5px char + 1px spacing)
 }
 
 void setup() {
   Serial.begin(115200);
-  Wire.begin(AS5600_SDA_PIN, AS5600_SCL_PIN); 
+  Wire.begin(AS5600_SDA_PIN, AS5600_SCL_PIN);
   Wire.setClock(100000);
 
   pinMode(CLK, INPUT_PULLUP);
   pinMode(DT, INPUT_PULLUP);
   pinMode(SW, INPUT_PULLUP);
-  lastSW = digitalRead(SW); // Inisialisasi lastSW
-  
+  lastSW = digitalRead(SW);  // Inisialisasi lastSW
+
   pinMode(RPWM, OUTPUT);
   pinMode(LPWM, OUTPUT);
   pinMode(REN, OUTPUT);
@@ -156,7 +162,7 @@ void setup() {
 
   // --- Inisialisasi TFT (Pesan Loading Single Line) ---
   tft.initR(INITR_BLACKTAB);
-  tft.setRotation(1); // ROTASI HORIZONTAL: 0
+  tft.setRotation(1);  // ROTASI HORIZONTAL: 0
   tft.fillScreen(ST77XX_BLACK);
   tft.setTextSize(1);
   tft.setTextColor(ST77XX_WHITE);
@@ -164,23 +170,24 @@ void setup() {
   tft.println("PID Trainer Initializing...");
 
   // --- Inisialisasi SPIFFS ---
-  if (!SPIFFS.begin(true)) { 
+  if (!SPIFFS.begin(true)) {
     tft.fillScreen(ST77XX_BLACK);
     tft.setCursor(10, tft.height() / 2 - 7);
     tft.setTextColor(ST77XX_RED);
     tft.println("SPIFFS Mount FAILED!");
     Serial.println("SPIFFS Mount Failed");
-    while (true); // Stop if SPIFFS fails
+    while (true)
+      ;  // Stop if SPIFFS fails
   }
   Serial.println("SPIFFS Mounted Successfully");
-  
+
   // --- Setup Captive Portal (AP Mode) dan WebSockets ---
-  setupCaptivePortal(); 
-  webSocket.begin(); // Mulai WebSocket server
-  webSocket.onEvent(webSocketEvent); // Daftarkan event handler untuk WebSocket
+  setupCaptivePortal();
+  webSocket.begin();                  // Mulai WebSocket server
+  webSocket.onEvent(webSocketEvent);  // Daftarkan event handler untuk WebSocket
 
   // --- Kalibrasi AS5600 ---
-  checkMagnetPresence(); // Fungsi ini akan menampilkan pesan error magnet jika ada
+  checkMagnetPresence();  // Fungsi ini akan menampilkan pesan error magnet jika ada
 
   readAS5600AngleCombined();
   startAngle_as5600 = degAngle_as5600;
@@ -194,30 +201,37 @@ void setup() {
 
 void loop() {
   // --- Tangani WebServer, DNS, dan WebSocket ---
-  dnsServer.processNextRequest(); 
-  webSocket.loop(); // Penting: Panggil ini di loop() untuk memproses event WebSocket
-  
+  dnsServer.processNextRequest();
+  webSocket.loop();  // Penting: Panggil ini di loop() untuk memproses event WebSocket
+
   // Hanya jalankan logika utama jika tidak sedang kalibrasi
   if (!isCalibrating) {
     handleRotaryEncoder();
     handleRotaryButton();
 
-    currentAngle = readAS5600AngleCombined();
+    // currentAngle = readAS5600AngleCombined();
+    float measuredAngle = readAS5600AngleCombined();  // Sudut baru dari sensor
+    float dt = pidInterval / 1000.0;
+    float rate = (measuredAngle - lastAngle) / dt;
+
+    currentAngle = kalman.getAngle(measuredAngle, rate, dt);
+    lastAngle = currentAngle;
+
 
     if (millis() - lastPIDTime >= pidInterval) {
       calculatePID();
       int motorSpeed = constrain(outputPID, -255, 255);
       driveMotor(motorSpeed);
       lastPIDTime = millis();
-      sendPIDDataToWeb(); // Kirim data PID ke web setelah perhitungan
+      sendPIDDataToWeb();  // Kirim data PID ke web setelah perhitungan
     }
 
-    if (abs(currentAngle - previousTotalAngle) > 0.1 || (millis() % 200 < pidInterval) || (millis() % 2000 < pidInterval) ) {
+    if (abs(currentAngle - previousTotalAngle) > 0.1 || (millis() % 200 < pidInterval) || (millis() % 2000 < pidInterval)) {
       checkTFTUpdate();
       displayValues();
       previousTotalAngle = currentAngle;
     }
-if (Serial.available()) {
+    if (Serial.available()) {
       String input = Serial.readStringUntil('\n');
       input.trim();
 
@@ -246,7 +260,7 @@ if (Serial.available()) {
     }
   } else {
     // Jika sedang kalibrasi, terus update progress bar
-    performCalibration(); 
+    performCalibration();
   }
 }
 
@@ -260,7 +274,7 @@ void handleRotaryEncoder() {
       case MODE_ANGLE:
         rotaryStep = 1.0;
         targetAngle += direction * rotaryStep;
-        if (targetAngle >= 360) targetAngle -= 360; 
+        if (targetAngle >= 360) targetAngle -= 360;
         else if (targetAngle < 0) targetAngle += 360;
         break;
       case MODE_KP:
@@ -280,8 +294,8 @@ void handleRotaryEncoder() {
         break;
     }
     shouldUpdateTFT = true;
-    // displayValues();
-    sendPIDDataToWeb(); // Kirim perubahan dari rotary ke web
+
+    sendPIDDataToWeb();
   }
   lastCLK = currentCLK;
 }
@@ -291,26 +305,26 @@ void handleRotaryButton() {
   bool currentSW = digitalRead(SW);
 
   // Deteksi penekanan tombol
-  if (currentSW == LOW && lastSW == HIGH) { 
+  if (currentSW == LOW && lastSW == HIGH) {
     buttonPressStartTime = millis();
     buttonWasHeld = false;
-  } 
+  }
   // Deteksi penahanan tombol
   else if (currentSW == LOW && !buttonWasHeld && (millis() - buttonPressStartTime >= HOLD_DURATION)) {
     isCalibrating = true;
     buttonWasHeld = true;
     Serial.println("Starting Calibration!");
     tft.fillScreen(ST77XX_BLACK);
-    tft.setCursor(tft.width()/2 - getTextWidth("Calibrating...", 1)/2, tft.height()/2 - 20);
+    tft.setCursor(tft.width() / 2 - getTextWidth("Calibrating...", 1) / 2, tft.height() / 2 - 20);
     tft.setTextColor(ST77XX_YELLOW);
     tft.println("Calibrating...");
-    tft.drawRect(tft.width()/2 - 50, tft.height()/2, 100, 10, ST77XX_WHITE);
+    tft.drawRect(tft.width() / 2 - 50, tft.height() / 2, 100, 10, ST77XX_WHITE);
     analogWrite(RPWM, 0);
     analogWrite(LPWM, 0);
-    sendPIDDataToWeb(); // Kirim status kalibrasi ke web (opsional)
+    sendPIDDataToWeb();  // Kirim status kalibrasi ke web (opsional)
   }
   // Deteksi pelepasan tombol
-  else if (currentSW == HIGH && lastSW == LOW) { 
+  else if (currentSW == HIGH && lastSW == LOW) {
     unsigned long holdDuration = millis() - buttonPressStartTime;
 
     if (holdDuration < HOLD_DURATION) {
@@ -327,12 +341,12 @@ void handleRotaryButton() {
           break;
         case MODE_KD:
           currentMode = MODE_ANGLE;
-          integral = 0; 
+          integral = 0;
           break;
       }
       shouldUpdateTFT = true;
       // displayValues();
-      sendPIDDataToWeb(); // Kirim perubahan mode (dan nilai) ke web
+      sendPIDDataToWeb();  // Kirim perubahan mode (dan nilai) ke web
     }
     buttonPressStartTime = 0;
   }
@@ -354,9 +368,9 @@ void performCalibration() {
   float progress = (float)(millis() - calibrationStartTime) / HOLD_DURATION;
   if (progress > 1.0) progress = 1.0;
 
-  int newProgressBarWidth = (int)(progress * 96); // 96 = lebar bar di dalam border (100 - 2 * border)
+  int newProgressBarWidth = (int)(progress * 96);  // 96 = lebar bar di dalam border (100 - 2 * border)
   if (newProgressBarWidth > progressBarWidth) {
-    tft.fillRect(tft.width()/2 - 48, tft.height()/2 + 2, newProgressBarWidth, 6, ST77XX_GREEN);
+    tft.fillRect(tft.width() / 2 - 48, tft.height() / 2 + 2, newProgressBarWidth, 6, ST77XX_GREEN);
     progressBarWidth = newProgressBarWidth;
   }
 
@@ -365,7 +379,7 @@ void performCalibration() {
     calibrationStartTime = 0;
     progressBarWidth = 0;
     calibrationSetupDone = false;
-    
+
     targetAngle = 0;
     Kp = 0;
     Ki = 0;
@@ -376,8 +390,8 @@ void performCalibration() {
     outputPID = 0;
     numberOfTurns = 0;
 
-shouldUpdateTFT = true;
-    // displayValues(); 
+    shouldUpdateTFT = true;
+    // displayValues();
     sendPIDDataToWeb();
     Serial.println("Calibration Complete! All parameters reset to 0.");
   }
@@ -398,7 +412,8 @@ void checkMagnetPresence() {
     Wire.endTransmission();
     Wire.requestFrom(AS5600_ADDR, 1);
 
-    while (Wire.available() == 0);
+    while (Wire.available() == 0)
+      ;
     magnetStatus = Wire.read();
 
     tft.fillRect(0, tft.height() / 2 + 10, tft.width(), 20, ST77XX_BLACK);
@@ -420,18 +435,20 @@ void ReadRawAngle() {
   Wire.write(0x0D);
   Wire.endTransmission();
   Wire.requestFrom(AS5600_ADDR, 1);
-  while (Wire.available() == 0);
+  while (Wire.available() == 0)
+    ;
   lowbyte_as5600 = Wire.read();
 
   Wire.beginTransmission(AS5600_ADDR);
   Wire.write(0x0C);
   Wire.endTransmission();
-  Wire.requestFrom(AS5600_ADDR, 1); 
-  while (Wire.available() == 0);
+  Wire.requestFrom(AS5600_ADDR, 1);
+  while (Wire.available() == 0)
+    ;
   highbyte_as5600 = Wire.read();
 
   highbyte_as5600 = highbyte_as5600 << 8;
-  rawAngle_as5600 = highbyte_as5600 | lowbyte_as5600; 
+  rawAngle_as5600 = highbyte_as5600 | lowbyte_as5600;
   degAngle_as5600 = rawAngle_as5600 * 0.087890625;
 }
 
@@ -497,14 +514,7 @@ void calculatePID() {
 }
 
 void checkTFTUpdate() {
-  if (targetAngle != lastTargetAngle ||
-      currentAngle != lastCurrentAngle ||
-      error != lastError ||
-      outputPID != lastPIDOut ||
-      Kp != lastKp ||
-      Ki != lastKi ||
-      Kd != lastKd ||
-      currentMode != lastMode) {
+  if (targetAngle != lastTargetAngle || currentAngle != lastCurrentAngle || error != lastError || outputPID != lastPIDOut || Kp != lastKp || Ki != lastKi || Kd != lastKd || currentMode != lastMode) {
 
     shouldUpdateTFT = true;
 
@@ -524,49 +534,49 @@ void displayValues() {
   if (!shouldUpdateTFT) return;
   shouldUpdateTFT = false;
 
-  tft.fillScreen(ST77XX_BLACK); // Bersihkan layar
-  tft.setTextColor(ST77XX_WHITE); // Semua teks warna putih
+  tft.fillScreen(ST77XX_BLACK);    // Bersihkan layar
+  tft.setTextColor(ST77XX_WHITE);  // Semua teks warna putih
 
-  int paddingX = 5; // Padding kiri
-  int currentY = 5; // Posisi Y awal
-  int lineSpacingSmall = 12; // Spasi untuk teks ukuran 1 (tinggi font 7 + 5)
-  int lineSpacingLarge = 24; // Spasi untuk teks ukuran 2 (tinggi font 14 + 10)
+  int paddingX = 5;           // Padding kiri
+  int currentY = 5;           // Posisi Y awal
+  int lineSpacingSmall = 12;  // Spasi untuk teks ukuran 1 (tinggi font 7 + 5)
+  int lineSpacingLarge = 24;  // Spasi untuk teks ukuran 2 (tinggi font 14 + 10)
 
 
   // --- Target & Motor (Ukuran teks yang disesuaikan) ---
   // Teks "Target:" dan nilainya
-  tft.setTextSize(1); // Ukuran teks besar untuk "Target:" dan nilainya
+  tft.setTextSize(1);  // Ukuran teks besar untuk "Target:" dan nilainya
   tft.setCursor(paddingX, currentY);
-  tft.setTextColor((currentMode == MODE_ANGLE) ? ST77XX_YELLOW : ST77XX_WHITE); // Highlight label dan nilai
+  tft.setTextColor((currentMode == MODE_ANGLE) ? ST77XX_YELLOW : ST77XX_WHITE);  // Highlight label dan nilai
   tft.print("TARGET:");
-  tft.print(targetAngle, 0); // Presisi 0 untuk tampilan besar
+  tft.print(targetAngle, 0);  // Presisi 0 untuk tampilan besar
   currentY += lineSpacingSmall;
 
   // Teks "Motor:" dan nilainya
-  tft.setTextSize(1); // Ukuran teks besar untuk "Motor:" dan nilainya
+  tft.setTextSize(1);  // Ukuran teks besar untuk "Motor:" dan nilainya
   tft.setCursor(paddingX, currentY);
-  tft.setTextColor(ST77XX_WHITE); // Motor tidak highlight, selalu putih
+  tft.setTextColor(ST77XX_WHITE);  // Motor tidak highlight, selalu putih
   tft.print("MOTOR:");
-  tft.print(currentAngle, 0); // Presisi 0 untuk tampilan besar
+  tft.print(currentAngle, 0);  // Presisi 0 untuk tampilan besar
   currentY += lineSpacingSmall;
 
   // --- Error: & PID Output: (Ukuran teks sedang) ---
-  tft.setTextSize(1); // Ukuran sedang (default)
+  tft.setTextSize(1);  // Ukuran sedang (default)
   tft.setTextColor(ST77XX_WHITE);
 
   tft.setCursor(paddingX, currentY);
   tft.print("Error:");
   tft.print(error, 1);
-  currentY += lineSpacingSmall; 
+  currentY += lineSpacingSmall;
 
   tft.setCursor(paddingX, currentY);
   tft.print("PID Out: ");
   tft.print(outputPID, 0);
-  currentY += lineSpacingSmall + 5; // Spasi setelah PID Out, sebelum Kp
+  currentY += lineSpacingSmall + 5;  // Spasi setelah PID Out, sebelum Kp
 
   // --- Kp: Ki: Kd: (Ukuran teks sedang) ---
   tft.setCursor(paddingX, currentY);
-  tft.setTextColor((currentMode == MODE_KP) ? ST77XX_YELLOW : ST77XX_WHITE); // Highlight warna
+  tft.setTextColor((currentMode == MODE_KP) ? ST77XX_YELLOW : ST77XX_WHITE);  // Highlight warna
   tft.print("Kp: ");
   tft.print(Kp, 3);
   currentY += lineSpacingSmall;
@@ -581,19 +591,19 @@ void displayValues() {
   tft.setTextColor((currentMode == MODE_KD) ? ST77XX_YELLOW : ST77XX_WHITE);
   tft.print("Kd: ");
   tft.print(Kd, 3);
-  currentY += lineSpacingSmall + 5; // Spasi setelah Kd, sebelum SSID
+  currentY += lineSpacingSmall + 5;  // Spasi setelah Kd, sebelum SSID
 
   // --- Informasi Jaringan (Ukuran teks sedang, selalu tampil) ---
   // tft.setCursor(paddingX, currentY);
-  // tft.setTextColor(ST77XX_WHITE);
+  tft.setTextColor(ST77XX_WHITE);
   // tft.print("SSID: ");
   // tft.println(ssid);
   // currentY += lineSpacingSmall;
 
-  tft.setCursor(paddingX, currentY);
-  tft.print("Pass: ");
-  tft.println(password);
-  currentY += lineSpacingSmall;
+  // tft.setCursor(paddingX, currentY);
+  // tft.print("Pass: ");
+  // tft.println(password);
+  // currentY += lineSpacingSmall;
 
   tft.setCursor(paddingX, currentY);
   tft.print("IP: ");
@@ -615,14 +625,14 @@ void setupCaptivePortal() {
 
   dnsServer.start(53, "*", apIP);
 
-  server.serveStatic("/", SPIFFS, "/").setDefaultFile("index.html").setCacheControl("max-age=600"); 
+  server.serveStatic("/", SPIFFS, "/").setDefaultFile("index.html").setCacheControl("max-age=600");
   server.serveStatic("/halo.txt", SPIFFS, "/halo.txt").setCacheControl("max-age=600");
 
-  server.on("/", HTTP_GET, handleRoot); 
+  server.on("/", HTTP_GET, handleRoot);
 
   server.onNotFound(handleNotFound);
-  
-  server.begin(); 
+
+  server.begin();
   Serial.println("HTTP server started (Async)");
 }
 
@@ -630,7 +640,7 @@ void handleRoot(AsyncWebServerRequest *request) {
   String html = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>PID Tuner</title>";
   html += "<style>body{font-family:sans-serif; text-align:center; margin-top:50px;} button{padding:10px 20px; font-size:16px;}</style>";
   html += "</head><body><h1>Welcome to ESP32 PID Tuner!</h1><p>Connect to this Wi-Fi to access the tuning interface.</p>";
-  html += "<p><a href='/index.html'><button>Go to Web Interface</button></a></p>"; 
+  html += "<p><a href='/index.html'><button>Go to Web Interface</button></a></p>";
   html += "</body></html>";
   request->send(200, "text/html", html);
 }
@@ -649,11 +659,12 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     case WStype_DISCONNECTED:
       Serial.printf("[%u] Disconnected!\n", num);
       break;
-    case WStype_CONNECTED: {
-      IPAddress ip = webSocket.remoteIP(num);
-      Serial.printf("[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
-      sendPIDDataToWeb();
-    }
+    case WStype_CONNECTED:
+      {
+        IPAddress ip = webSocket.remoteIP(num);
+        Serial.printf("[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
+        sendPIDDataToWeb();
+      }
       break;
     case WStype_TEXT:
       Serial.printf("[%u] get Text: %s\n", num, payload);
@@ -668,7 +679,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
         }
 
         String commandType = doc["type"];
-	        if (commandType == "mode") {
+        if (commandType == "mode") {
           String modeValue = doc["value"];
           if (modeValue == "edit") {
             isEditMode = true;
@@ -695,7 +706,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
           sendPIDDataToWeb();
         } else if (commandType == "target_set") {
           targetAngle = doc["value"];
-          if (targetAngle >= 360) targetAngle -= 360; 
+          if (targetAngle >= 360) targetAngle -= 360;
           else if (targetAngle < 0) targetAngle += 360;
           Serial.printf("Received Target update: %f\n", targetAngle);
           // displayValues();
@@ -703,14 +714,14 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
           sendPIDDataToWeb();
         } else if (commandType == "calibrate") {
           isCalibrating = true;
-          buttonPressStartTime = millis(); // Simulasikan penekanan tombol
-          buttonWasHeld = true; // Agar tidak memicu klik singkat
+          buttonPressStartTime = millis();  // Simulasikan penekanan tombol
+          buttonWasHeld = true;             // Agar tidak memicu klik singkat
           Serial.println("Calibration triggered from web!");
           tft.fillScreen(ST77XX_BLACK);
-          tft.setCursor(tft.width()/2 - getTextWidth("Calibrating...", 1)/2, tft.height()/2 - 20);
+          tft.setCursor(tft.width() / 2 - getTextWidth("Calibrating...", 1) / 2, tft.height() / 2 - 20);
           tft.setTextColor(ST77XX_YELLOW);
           tft.println("Calibrating...");
-          tft.drawRect(tft.width()/2 - 50, tft.height()/2, 100, 10, ST77XX_WHITE);
+          tft.drawRect(tft.width() / 2 - 50, tft.height() / 2, 100, 10, ST77XX_WHITE);
           analogWrite(RPWM, 0);
           analogWrite(LPWM, 0);
         }
@@ -729,19 +740,19 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 // Fungsi untuk mengirim data PID ke web
 void sendPIDDataToWeb() {
   if (webSocket.connectedClients() > 0) {
-    StaticJsonDocument<250> doc; 
+    StaticJsonDocument<250> doc;
 
     doc["target"] = targetAngle;
     doc["motor"] = currentAngle;
-if (!isEditMode) {
+    if (!isEditMode) {
       doc["target_sync"] = targetAngle;  // Disinkronkan ke form input hanya kalau bukan edit
-        doc["kp"] = Kp;
-        doc["ki"] = Ki;
-        doc["kd"] = Kd;
+      doc["kp"] = Kp;
+      doc["ki"] = Ki;
+      doc["kd"] = Kd;
     }
     doc["error"] = error;
     doc["pid_out"] = outputPID;
-    doc["time_s"] = millis() / 1000.0; // Tambahkan waktu dalam detik
+    doc["time_s"] = millis() / 1000.0;  // Tambahkan waktu dalam detik
 
     String jsonString;
     serializeJson(doc, jsonString);
