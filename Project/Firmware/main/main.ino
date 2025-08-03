@@ -37,7 +37,7 @@ Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 #define REN 27
 #define LEN 14
 
-// kalman 
+// kalman
 float lastAngle = 0.0;
 
 // --- Variabel Global AS5600 ---
@@ -57,6 +57,7 @@ float previousTotalAngle = 0;
 // --- Variabel Global Kontrol (Target, Aktual, Rotary Encoder, PID) ---
 float targetAngle = 0;
 float currentAngle = 0;
+bool needFullRefresh = true;  // Flag untuk menandakan perlu full refresh layar
 
 bool isEditMode = false;  // flag mode web
 
@@ -71,10 +72,10 @@ bool buttonWasHeld = false;                // Flag untuk melacak apakah tombol s
 float rotaryStep = 0.01;  // Step default untuk derajat target
 
 // --- Variabel PID ---
-float Kp = 0.6;     // Proportional gain (sesuaikan)
-float Ki = 0.0001;  // Integral gain (sesuaikan)
-float Kd = 0.25;    // Derivative gain (sesuaikan)
-
+float Kp = 0.0000;  // Proportional gain (sesuaikan)
+float Ki = 0.0000;  // Integral gain (sesuaikan)
+float Kd = 0.0000;  // Derivative gain (sesuaikan)
+float dt = 0;
 float error = 0;
 float previousError = 0;
 float integral = 0;
@@ -91,6 +92,11 @@ float lastPIDOut = -999;
 float lastKp = -999;
 float lastKi = -999;
 float lastKd = -999;
+int lastDisplayTarget = -999;
+int lastDisplayAngle = -999;
+float lastDisplayError = -999.0;
+float lastDisplayPID = -999.0;
+
 
 // --- Definisi Mode Rotary Encoder ---
 enum RotaryMode {
@@ -211,7 +217,7 @@ void loop() {
 
     // currentAngle = readAS5600AngleCombined();
     float measuredAngle = readAS5600AngleCombined();  // Sudut baru dari sensor
-    float dt = pidInterval / 1000.0;
+    dt = pidInterval / 1000.0;
     float rate = (measuredAngle - lastAngle) / dt;
 
     currentAngle = kalman.getAngle(measuredAngle, rate, dt);
@@ -390,6 +396,8 @@ void performCalibration() {
     outputPID = 0;
     numberOfTurns = 0;
 
+    triggerFullRefresh();
+
     shouldUpdateTFT = true;
     // displayValues();
     sendPIDDataToWeb();
@@ -428,6 +436,8 @@ void checkMagnetPresence() {
     }
     delay(200);
   }
+
+  triggerFullRefresh();
 }
 
 void ReadRawAngle() {
@@ -504,111 +514,293 @@ void driveMotor(int speed) {
 
 void calculatePID() {
   error = targetAngle - currentAngle;
-  integral += error;
-  if (integral > 200) integral = 200;
-  if (integral < -200) integral = -200;
 
-  float derivative = error - previousError;
+  float maxOutput = 255.0;
+  float maxIntegral = (Ki != 0) ? (maxOutput / Ki) : 0;
+
+  if (abs(outputPID) < maxOutput) {
+    integral += error * dt;
+    if (integral > maxIntegral) integral = maxIntegral;
+    if (integral < -maxIntegral) integral = -maxIntegral;
+  }
+
+  float derivative = (error - previousError) / dt;
   outputPID = (Kp * error) + (Ki * integral) + (Kd * derivative);
+
+  if (outputPID > 255) outputPID = 255;
+  else if (outputPID < -255) outputPID = -255;
+
   previousError = error;
 }
 
+
+void displayValues() {
+  if (!shouldUpdateTFT || isCalibrating) return;
+  shouldUpdateTFT = false;
+
+   if (needFullRefresh) {
+    tft.fillScreen(ST77XX_BLACK);
+    
+    lastDisplayTarget = -999;
+    lastDisplayAngle = -999;
+    lastDisplayError = -999.0;
+    lastDisplayPID = -999.0;
+    lastKp = -999;
+    lastKi = -999;
+    lastKd = -999;
+    
+    needFullRefresh = false;  // Reset flag setelah refresh
+  }
+
+  int paddingX = 5;
+  int currentY = 5;
+  int lineSpacingSmall = 12;
+  int clearWidth = 120; // Lebar area yang dibersihkan - disesuaikan dengan panjang teks maksimal
+
+  // --- TARGET ---
+  if (targetAngle != lastDisplayTarget) {
+    // Bersihkan area dengan lebar yang cukup untuk teks terpanjang
+    tft.fillRect(paddingX, currentY, clearWidth, 10, ST77XX_BLACK);
+    
+    tft.setTextSize(1);
+    tft.setCursor(paddingX, currentY);
+    tft.setTextColor((currentMode == MODE_ANGLE) ? ST77XX_YELLOW : ST77XX_WHITE);
+    tft.print("TARGET: ");
+    tft.print(targetAngle, 0);
+
+    lastDisplayTarget = targetAngle;
+  }
+  currentY += lineSpacingSmall;
+
+  // --- MOTOR ---
+  if (currentAngle != lastDisplayAngle) {
+    tft.fillRect(paddingX, currentY, clearWidth, 10, ST77XX_BLACK);
+    
+    tft.setTextSize(1);
+    tft.setCursor(paddingX, currentY);
+    tft.setTextColor(ST77XX_WHITE);
+    tft.print("MOTOR: ");
+    tft.print(currentAngle, 0);
+
+    lastDisplayAngle = currentAngle;
+  }
+  currentY += lineSpacingSmall;
+
+  // --- ERROR ---
+  if (abs(error - lastDisplayError) > 0.1) {
+    tft.fillRect(paddingX, currentY, clearWidth, 10, ST77XX_BLACK);
+    
+    tft.setTextSize(1);
+    tft.setCursor(paddingX, currentY);
+    tft.setTextColor(ST77XX_WHITE);
+    tft.print("Error: ");
+    tft.print(error, 1);
+
+    lastDisplayError = error;
+  }
+  currentY += lineSpacingSmall;
+
+  // --- PID OUT ---
+  if (abs(outputPID - lastDisplayPID) > 1.0) {
+    tft.fillRect(paddingX, currentY, clearWidth, 10, ST77XX_BLACK);
+    
+    tft.setTextSize(1);
+    tft.setCursor(paddingX, currentY);
+    tft.setTextColor(ST77XX_WHITE);
+    tft.print("PID Out: ");
+    tft.print(outputPID, 0);
+
+    lastDisplayPID = outputPID;
+  }
+  currentY += lineSpacingSmall;
+
+  // --- Kp ---
+  if (abs(Kp - lastKp) > 0.001) {  // Gunakan threshold kecil untuk float
+    tft.fillRect(paddingX, currentY, clearWidth, 10, ST77XX_BLACK);
+    tft.setTextSize(1);
+    tft.setCursor(paddingX, currentY);
+    tft.setTextColor((currentMode == MODE_KP) ? ST77XX_YELLOW : ST77XX_WHITE);
+    tft.print("Kp: ");
+    tft.print(Kp, 3);
+    
+    lastKp = Kp; // Update nilai terakhir
+  }
+  currentY += lineSpacingSmall;
+
+  // --- Ki ---
+  if (abs(Ki - lastKi) > 0.00001) {  // Threshold sangat kecil untuk Ki
+    tft.fillRect(paddingX, currentY, clearWidth, 10, ST77XX_BLACK);
+    
+    tft.setTextSize(1);
+    tft.setCursor(paddingX, currentY);
+    tft.setTextColor((currentMode == MODE_KI) ? ST77XX_YELLOW : ST77XX_WHITE);
+    tft.print("Ki: ");
+    tft.print(Ki, 5);
+    
+    lastKi = Ki; // Update nilai terakhir
+  }
+  currentY += lineSpacingSmall;
+
+  // --- Kd ---
+  if (abs(Kd - lastKd) > 0.001) {  // Gunakan threshold kecil untuk float
+    tft.fillRect(paddingX, currentY, clearWidth, 10, ST77XX_BLACK);
+    
+    tft.setTextSize(1);
+    tft.setCursor(paddingX, currentY);
+    tft.setTextColor((currentMode == MODE_KD) ? ST77XX_YELLOW : ST77XX_WHITE);
+    tft.print("Kd: ");
+    tft.print(Kd, 3);
+    
+    lastKd = Kd; // Update nilai terakhir
+  }
+  currentY += lineSpacingSmall + 5;
+
+  // --- IP Address (Tampil sekali saja atau saat perubahan mode) ---
+  // static bool ipDisplayed = false;
+  // if (!ipDisplayed || needFullRefresh) {
+    tft.setTextSize(1);
+    tft.setCursor(paddingX, currentY);
+    tft.setTextColor(ST77XX_WHITE);
+    tft.print("IP: ");
+    tft.print(WiFi.softAPIP());
+    // ipDisplayed = true;
+  // }
+}
+
+// Juga perlu perbaikan di fungsi checkTFTUpdate untuk menambahkan update variabel display
 void checkTFTUpdate() {
-  if (targetAngle != lastTargetAngle || currentAngle != lastCurrentAngle || error != lastError || outputPID != lastPIDOut || Kp != lastKp || Ki != lastKi || Kd != lastKd || currentMode != lastMode) {
+    bool modeChanged = (currentMode != lastMode);
+
+  if (targetAngle != lastTargetAngle || 
+      currentAngle != lastCurrentAngle || 
+      error != lastError || 
+      outputPID != lastPIDOut || 
+      // Kp != lastKp || 
+      // Ki != lastKi || 
+      // Kd != lastKd || 
+      currentMode != lastMode) {
 
     shouldUpdateTFT = true;
+
+    if (modeChanged) {
+      needFullRefresh = true;
+    }
 
     lastTargetAngle = targetAngle;
     lastCurrentAngle = currentAngle;
     lastError = error;
     lastPIDOut = outputPID;
-    lastKp = Kp;
-    lastKi = Ki;
-    lastKd = Kd;
+    // lastKp = Kp;
+    // lastKi = Ki;
+    // lastKd = Kd;
     lastMode = currentMode;
   }
 }
 
-// --- Fungsi Tampilan TFT ---
-void displayValues() {
-  if (!shouldUpdateTFT) return;
-  shouldUpdateTFT = false;
-
-  tft.fillScreen(ST77XX_BLACK);    // Bersihkan layar
-  tft.setTextColor(ST77XX_WHITE);  // Semua teks warna putih
-
-  int paddingX = 5;           // Padding kiri
-  int currentY = 5;           // Posisi Y awal
-  int lineSpacingSmall = 12;  // Spasi untuk teks ukuran 1 (tinggi font 7 + 5)
-  int lineSpacingLarge = 24;  // Spasi untuk teks ukuran 2 (tinggi font 14 + 10)
-
-
-  // --- Target & Motor (Ukuran teks yang disesuaikan) ---
-  // Teks "Target:" dan nilainya
-  tft.setTextSize(1);  // Ukuran teks besar untuk "Target:" dan nilainya
-  tft.setCursor(paddingX, currentY);
-  tft.setTextColor((currentMode == MODE_ANGLE) ? ST77XX_YELLOW : ST77XX_WHITE);  // Highlight label dan nilai
-  tft.print("TARGET:");
-  tft.print(targetAngle, 0);  // Presisi 0 untuk tampilan besar
-  currentY += lineSpacingSmall;
-
-  // Teks "Motor:" dan nilainya
-  tft.setTextSize(1);  // Ukuran teks besar untuk "Motor:" dan nilainya
-  tft.setCursor(paddingX, currentY);
-  tft.setTextColor(ST77XX_WHITE);  // Motor tidak highlight, selalu putih
-  tft.print("MOTOR:");
-  tft.print(currentAngle, 0);  // Presisi 0 untuk tampilan besar
-  currentY += lineSpacingSmall;
-
-  // --- Error: & PID Output: (Ukuran teks sedang) ---
-  tft.setTextSize(1);  // Ukuran sedang (default)
-  tft.setTextColor(ST77XX_WHITE);
-
-  tft.setCursor(paddingX, currentY);
-  tft.print("Error:");
-  tft.print(error, 1);
-  currentY += lineSpacingSmall;
-
-  tft.setCursor(paddingX, currentY);
-  tft.print("PID Out: ");
-  tft.print(outputPID, 0);
-  currentY += lineSpacingSmall + 5;  // Spasi setelah PID Out, sebelum Kp
-
-  // --- Kp: Ki: Kd: (Ukuran teks sedang) ---
-  tft.setCursor(paddingX, currentY);
-  tft.setTextColor((currentMode == MODE_KP) ? ST77XX_YELLOW : ST77XX_WHITE);  // Highlight warna
-  tft.print("Kp: ");
-  tft.print(Kp, 3);
-  currentY += lineSpacingSmall;
-
-  tft.setCursor(paddingX, currentY);
-  tft.setTextColor((currentMode == MODE_KI) ? ST77XX_YELLOW : ST77XX_WHITE);
-  tft.print("Ki: ");
-  tft.print(Ki, 5);
-  currentY += lineSpacingSmall;
-
-  tft.setCursor(paddingX, currentY);
-  tft.setTextColor((currentMode == MODE_KD) ? ST77XX_YELLOW : ST77XX_WHITE);
-  tft.print("Kd: ");
-  tft.print(Kd, 3);
-  currentY += lineSpacingSmall + 5;  // Spasi setelah Kd, sebelum SSID
-
-  // --- Informasi Jaringan (Ukuran teks sedang, selalu tampil) ---
-  // tft.setCursor(paddingX, currentY);
-  tft.setTextColor(ST77XX_WHITE);
-  // tft.print("SSID: ");
-  // tft.println(ssid);
-  // currentY += lineSpacingSmall;
-
-  // tft.setCursor(paddingX, currentY);
-  // tft.print("Pass: ");
-  // tft.println(password);
-  // currentY += lineSpacingSmall;
-
-  tft.setCursor(paddingX, currentY);
-  tft.print("IP: ");
-  tft.println(WiFi.softAPIP());
+// Fungsi untuk inisialisasi tampilan pertama kali (panggil di setup atau setelah kalibrasi)
+void initializeDisplay() {
+  tft.fillScreen(ST77XX_BLACK);
+  
+  // Reset semua variabel display agar tampilan full refresh
+  lastDisplayTarget = -999;
+  lastDisplayAngle = -999;
+  lastDisplayError = -999.0;
+  lastDisplayPID = -999.0;
+  lastKp = -999;
+  lastKi = -999;
+  lastKd = -999;
+  
+  shouldUpdateTFT = true;
+  displayValues();
 }
+
+void triggerFullRefresh() {
+  needFullRefresh = true;
+  shouldUpdateTFT = true;
+}
+
+
+// --- Fungsi Tampilan TFT ---
+// void displayValues() {
+//   // if (!shouldUpdateTFT) return;
+//     if (!shouldUpdateTFT || isCalibrating) return;
+//   shouldUpdateTFT = false;
+
+//   tft.fillScreen(ST77XX_BLACK);    // Bersihkan layar
+//   tft.setTextColor(ST77XX_WHITE);  // Semua teks warna putih
+
+//   int paddingX = 5;           // Padding kiri
+//   int currentY = 5;           // Posisi Y awal
+//   int lineSpacingSmall = 12;  // Spasi untuk teks ukuran 1 (tinggi font 7 + 5)
+//   int lineSpacingLarge = 24;  // Spasi untuk teks ukuran 2 (tinggi font 14 + 10)
+
+
+//   // --- Target & Motor (Ukuran teks yang disesuaikan) ---
+//   // Teks "Target:" dan nilainya
+//   tft.setTextSize(1);  // Ukuran teks besar untuk "Target:" dan nilainya
+//   tft.setCursor(paddingX, currentY);
+//   tft.setTextColor((currentMode == MODE_ANGLE) ? ST77XX_YELLOW : ST77XX_WHITE);  // Highlight label dan nilai
+//   tft.print("TARGET:");
+//   tft.print(targetAngle, 0);  // Presisi 0 untuk tampilan besar
+//   currentY += lineSpacingSmall;
+
+//   // Teks "Motor:" dan nilainya
+//   tft.setTextSize(1);  // Ukuran teks besar untuk "Motor:" dan nilainya
+//   tft.setCursor(paddingX, currentY);
+//   tft.setTextColor(ST77XX_WHITE);  // Motor tidak highlight, selalu putih
+//   tft.print("MOTOR:");
+//   tft.print(currentAngle, 0);  // Presisi 0 untuk tampilan besar
+//   currentY += lineSpacingSmall;
+
+//   // --- Error: & PID Output: (Ukuran teks sedang) ---
+//   tft.setTextSize(1);  // Ukuran sedang (default)
+//   tft.setTextColor(ST77XX_WHITE);
+
+//   tft.setCursor(paddingX, currentY);
+//   tft.print("Error:");
+//   tft.print(error, 1);
+//   currentY += lineSpacingSmall;
+
+//   tft.setCursor(paddingX, currentY);
+//   tft.print("PID Out: ");
+//   tft.print(outputPID, 0);
+//   currentY += lineSpacingSmall + 5;  // Spasi setelah PID Out, sebelum Kp
+
+//   // --- Kp: Ki: Kd: (Ukuran teks sedang) ---
+//   tft.setCursor(paddingX, currentY);
+//   tft.setTextColor((currentMode == MODE_KP) ? ST77XX_YELLOW : ST77XX_WHITE);  // Highlight warna
+//   tft.print("Kp: ");
+//   tft.print(Kp, 3);
+//   currentY += lineSpacingSmall;
+
+//   tft.setCursor(paddingX, currentY);
+//   tft.setTextColor((currentMode == MODE_KI) ? ST77XX_YELLOW : ST77XX_WHITE);
+//   tft.print("Ki: ");
+//   tft.print(Ki, 5);
+//   currentY += lineSpacingSmall;
+
+//   tft.setCursor(paddingX, currentY);
+//   tft.setTextColor((currentMode == MODE_KD) ? ST77XX_YELLOW : ST77XX_WHITE);
+//   tft.print("Kd: ");
+//   tft.print(Kd, 3);
+//   currentY += lineSpacingSmall + 5;  // Spasi setelah Kd, sebelum SSID
+
+//   // --- Informasi Jaringan (Ukuran teks sedang, selalu tampil) ---
+//   // tft.setCursor(paddingX, currentY);
+//   tft.setTextColor(ST77XX_WHITE);
+//   // tft.print("SSID: ");
+//   // tft.println(ssid);
+//   // currentY += lineSpacingSmall;
+
+//   // tft.setCursor(paddingX, currentY);
+//   // tft.print("Pass: ");
+//   // tft.println(password);
+//   // currentY += lineSpacingSmall;
+
+//   tft.setCursor(paddingX, currentY);
+//   tft.print("IP: ");
+//   tft.println(WiFi.softAPIP());
+// }
 
 // --- Implementasi Fungsi WebServer ---
 
