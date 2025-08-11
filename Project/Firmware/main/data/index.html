@@ -433,15 +433,13 @@
                     <button id="calibrateButton" class="action-btn btn-danger">Kalibrasi Sistem</button>
                 </div>
 <div id="pidInfo" class="pid-info">
-    <div class="pid-info-row">
-        <div><strong>Kp:</strong> <span id="infoKp">-</span></div>
-        <div><strong>Ki:</strong> <span id="infoKi">-</span></div>
-        <div><strong>Kd:</strong> <span id="infoKd">-</span></div>
-    </div>
-    <div class="pid-info-row">
-        <div><strong>Output PID:</strong> <span id="infoOut">-</span></div>
-        <div><strong>Error:</strong> <span id="infoErr">-</span></div>
-    </div>
+<div id="pid-metrics">
+    <p>Rise Time: <span id="rise-time">-</span> s</p>
+    <p>Settling Time: <span id="settling-time">-</span> s</p>
+    <p>Overshoot: <span id="overshoot">-</span> %</p>
+    <p>Steady-State Error: <span id="steady-error">-</span> °</p>
+</div>
+
 </div>
             </div>
         </div>
@@ -455,11 +453,11 @@
         const inputKi = document.getElementById('inputKi');
         const inputKd = document.getElementById('inputKd');
 
-    const infoKp = document.getElementById('infoKp');
-    const infoKi = document.getElementById('infoKi');
-    const infoKd = document.getElementById('infoKd');
-    const infoOut = document.getElementById('infoOut');
-    const infoErr = document.getElementById('infoErr');
+        const infoKp = document.getElementById('infoKp');
+        const infoKi = document.getElementById('infoKi');
+        const infoKd = document.getElementById('infoKd');
+        const infoOut = document.getElementById('infoOut');
+        const infoErr = document.getElementById('infoErr');
 
         const inputTargetAngle = document.getElementById('inputTargetAngle');
         
@@ -478,19 +476,41 @@
         
         let isEditMode = false;
         let isPaused = false;
+
+        // Variabel metric
+        let riseTime = null;
+        let settlingTime = null;
+        let overshoot = 0;
+        let steadyStateError = 0;
+        let initialError = 0;
+        let settled = false;
+        let startTime = null;
+
+        // Toleransi settling (5% dari deviasi awal)
+        const tolerance = 0.05;
         
         // Toggle functionality
-toggleSwitch.addEventListener('click', () => {
-    isEditMode = !isEditMode;
-    toggleSwitch.classList.toggle('active', isEditMode);
+        toggleSwitch.addEventListener('click', () => {
+            isEditMode = !isEditMode;
+            toggleSwitch.classList.toggle('active', isEditMode);
 
-    const statusText = document.getElementById('toggleStatusText');
-    statusText.textContent = isEditMode ? 'Edit' : 'View';
+            const statusText = document.getElementById('toggleStatusText');
+            statusText.textContent = isEditMode ? 'Edit' : 'View';
 
-    setEditMode(isEditMode);
-    sendData('mode', null, isEditMode ? 'edit' : 'view');
-});
+            setEditMode(isEditMode);
+            sendData('mode', null, isEditMode ? 'edit' : 'view');
+        });
 
+        // Reset metric
+        function resetMetrics(currentMotor) {
+            startTime = Date.now();
+            initialError = Math.abs(currentMotor); // deviasi awal dari target 0
+            riseTime = null;
+            settlingTime = null;
+            overshoot = 0;
+            steadyStateError = initialError;
+            settled = false;
+        }
 
         // Pause functionality
         pauseButton.addEventListener('click', () => {
@@ -524,29 +544,46 @@ toggleSwitch.addEventListener('click', () => {
             ws.send(JSON.stringify(data));
         }
 
-        // Event listener untuk pesan dari WebSocket
+                // Event listener untuk pesan dari WebSocket
         ws.onmessage = function(event) {
             try {
                 const data = JSON.parse(event.data);
-                
-                // Update input fields to reflect current values
-                inputKp.value = data.kp !== undefined ? data.kp : inputKp.value;
-                inputKi.value = data.ki !== undefined ? data.ki : inputKi.value;
-                inputKd.value = data.kd !== undefined ? data.kd : inputKd.value;
-                
-                if (data.target_sync !== undefined && !isEditMode) {
-                    inputTargetAngle.value = data.target_sync;
+                const motorValue = data.motor ?? 0;
+
+                // Reset saat awal nyala atau ada gangguan besar (>20° dari 0)
+                if (startTime === null || (Math.abs(motorValue) > 20 && settled)) {
+                    resetMetrics(motorValue);
                 }
-                
-                // Only update chart if not paused
+
+                // Overshoot → nilai melewati 0 dan searah dengan deviasi awal
+                if (Math.abs(motorValue) > Math.abs(initialError)) {
+                    overshoot = ((Math.abs(motorValue) - initialError) / initialError) * 100;
+                }
+
+                // Rise time → error berkurang 90% dari awal
+                if (riseTime === null && initialError > 0 && Math.abs(motorValue) <= initialError * 0.1) {
+                    riseTime = (Date.now() - startTime) / 1000;
+                }
+
+                // Settling time → error masuk ±5% dari awal
+                if (!settled && initialError > 0 && Math.abs(motorValue) <= initialError * tolerance) {
+                    settlingTime = (Date.now() - startTime) / 1000;
+                    settled = true;
+                }
+
+                // Steady-state error
+                steadyStateError = Math.abs(motorValue);
+
+                // Update tampilan metric
+                document.getElementById("rise-time").textContent = riseTime !== null ? riseTime.toFixed(2) : "-";
+                document.getElementById("settling-time").textContent = settlingTime !== null ? settlingTime.toFixed(2) : "-";
+                document.getElementById("overshoot").textContent = overshoot.toFixed(2);
+                document.getElementById("steady-error").textContent = steadyStateError.toFixed(2);
+
+                // Update grafik
                 if (!isPaused) {
-                    updateChart(data.target ?? 0, data.motor ?? 0);
+                    updateChart(0, motorValue);
                 }
-		if (data.kp !== undefined) infoKp.textContent = data.kp.toFixed(4);
-            if (data.ki !== undefined) infoKi.textContent = data.ki.toFixed(4);
-            if (data.kd !== undefined) infoKd.textContent = data.kd.toFixed(4);
-            if (data.pid_out !== undefined) infoOut.textContent = data.pid_out.toFixed(2);
-            if (data.error !== undefined) infoErr.textContent = data.error.toFixed(2);
             } catch (e) {
                 console.error("Failed to parse JSON:", e, event.data);
             }
@@ -618,8 +655,8 @@ toggleSwitch.addEventListener('click', () => {
                 animation: false,
                 scales: {
                     y: {
-                        suggestedMin: 0,
-                        suggestedMax: 360,
+                        suggestedMin: -180,
+                        suggestedMax: 180,
                         title: {
                             display: true,
                             text: 'Derajat (°)',
