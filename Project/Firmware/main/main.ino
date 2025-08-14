@@ -1,58 +1,49 @@
-#include <Wire.h>             // Untuk komunikasi I2C (AS5600 dan OLED/TFT)
-#include <Adafruit_GFX.h>     // Library grafis dasar untuk TFT
-#include <Adafruit_ST7735.h>  // Driver spesifik untuk TFT ST7735
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7735.h>
 
-// --- Library Baru untuk Wi-Fi dan WebServer (Async) ---
-#include <WiFi.h>               // Untuk fungsionalitas Wi-Fi (AP mode)
-#include <ESPAsyncWebServer.h>  // Untuk membuat server HTTP Asynchronous
-#include <DNSServer.h>          // Untuk Captive Portal (mengarahkan DNS)
-#include <SPIFFS.h>             // Untuk sistem file SPIFFS (menyimpan halaman web)
-#include <WebSocketsServer.h>   // Library untuk WebSocket Server
-#include <ArduinoJson.h>        // Library untuk parsing JSON
+#include <WiFi.h>
+#include <ESPAsyncWebServer.h>
+#include <DNSServer.h>
+#include <SPIFFS.h>
+#include <WebSocketsServer.h>
+#include <ArduinoJson.h>
 
 #include "KalmanFilter.h"
 KalmanFilter kalman;
 
-// --- TFT Setup ---
 #define TFT_CS 5
 #define TFT_RST 4
 #define TFT_DC 15
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
-// --- AS5600 (I2C Address) ---
 #define AS5600_ADDR 0x36
 
-// --- Definisi pin I2C BARU untuk AS5600 ---
 #define AS5600_SDA_PIN 16
 #define AS5600_SCL_PIN 17
 
-// --- Rotary Encoder ---
 #define CLK 32
 #define DT 25
-#define SW 13  // Rotary Encoder Button
+#define SW 13
 
-// --- BTS7960 Motor Driver ---
 #define RPWM 2
 #define LPWM 0
 #define REN 27
 #define LEN 14
 
-// kalman
 float lastAngle = 0.0;
 
-// --- Variabel Global AS5600 (DISEDERHANAKAN untuk ZPOS) ---
 int magnetStatus = 0;
 int lowbyte_as5600;
 word highbyte_as5600;
 int rawAngle_as5600;
 float degAngle_as5600;
 
-// --- Variabel Global Kontrol (Target, Aktual, Rotary Encoder, PID) ---
 float targetAngle = 0;
 float currentAngle = 0;
-bool needFullRefresh = true;  // Flag untuk menandakan perlu full refresh layar
+bool needFullRefresh = true;
 
-bool isEditMode = false;  // flag mode web
+bool isEditMode = false;
 
 int lastCLK = HIGH;
 int lastDT = HIGH;
@@ -60,18 +51,17 @@ bool lastSW = HIGH;
 unsigned long lastEncoderTime = 0;
 unsigned long lastButtonTime = 0;
 unsigned long buttonPressStartTime = 0;
-const unsigned long ENCODER_DEBOUNCE_MS = 2;  // Debounce untuk rotary
-const unsigned long BUTTON_DEBOUNCE_MS = 50;  // Debounce untuk tombol
-const unsigned long HOLD_DURATION = 1500;     // Hold duration untuk reset
+const unsigned long ENCODER_DEBOUNCE_MS = 2;
+const unsigned long BUTTON_DEBOUNCE_MS = 50;
+const unsigned long HOLD_DURATION = 1500;
 bool isCalibrating = false;
 bool buttonWasHeld = false;
 
-float rotaryStep = 0.01;  // Step default untuk derajat target
+float rotaryStep = 0.01;
 
-// --- Variabel PID ---
-float Kp = 0.7000;  // Proportional gain (sesuaikan)
-float Ki = 0.00010;  // Integral gain (sesuaikan)
-float Kd = 0.001000;  // Derivative gain (sesuaikan)
+float Kp = 0.7000;
+float Ki = 0.0000;
+float Kd = 0.001000;
 float dt = 0;
 float error = 0;
 float previousError = 0;
@@ -79,16 +69,18 @@ float integral = 0;
 float outputPID = 0;
 float derivative = 0;
 
-const float CW_LIMIT = 35.0;
-const float CCW_LIMIT = -35.0;
+// float offsetFromZpos = 51.42;
+float offsetFromZpos = 69.69;
+
+const float CW_LIMIT = 40.0;
+const float CCW_LIMIT = -40.0;
 
 bool pidEnabled = true;
 unsigned long startTime = 0;
 
 unsigned long lastPIDTime = 0;
-int pidInterval = 10;  // Interval perhitungan PID (ms)
+int pidInterval = 20;
 
-// --- Variabel tampilan sebelumnya untuk deteksi perubahan ---
 float lastTargetAngle = -999;
 float lastCurrentAngle = -999;
 float lastError = -999;
@@ -101,50 +93,41 @@ int lastDisplayAngle = -999;
 float lastDisplayError = -999.0;
 float lastDisplayPID = -999.0;
 
-// --- Definisi Mode Rotary Encoder ---
 enum RotaryMode {
   MODE_KP,
   MODE_KI,
   MODE_KD
 };
-RotaryMode currentMode = MODE_KP;  // Mode awal adalah mengatur Kp
+RotaryMode currentMode = MODE_KP;
 
 RotaryMode lastMode = MODE_KP;
 bool shouldUpdateTFT = true;
 
-// --- Variabel Wi-Fi AP dan WebServer ---
-const char *ssid = "PID Trainer";    // Nama Wi-Fi AP
-const char *password = "motordc1";   // Password Wi-Fi AP (min 8 karakter)
-IPAddress apIP(192, 168, 4, 1);      // Alamat IP untuk AP
-IPAddress netMsk(255, 255, 255, 0);  // Subnet mask
+const char *ssid = "PID Trainer";
+const char *password = "motordc1";
+IPAddress apIP(192, 168, 4, 1);
+IPAddress netMsk(255, 255, 255, 0);
 
 DNSServer dnsServer;
-AsyncWebServer server(80);                          // WebServer di port 80 - Menggunakan AsyncWebServer!
-WebSocketsServer webSocket = WebSocketsServer(81);  // WebSocket Server di port 81
+AsyncWebServer server(80);
+WebSocketsServer webSocket = WebSocketsServer(81);
 
-// --- Fungsi Prototype ---
 void checkMagnetPresence();
 void ReadRawAngle();
-float readAS5600Angle();  // FUNGSI BARU yang lebih sederhana
+float readAngle();
 void calculatePID();
 void driveMotor(int speed);
 void displayValues();
 void handleRotaryEncoder();
 void handleRotaryButton();
-void performParameterReset();  // GANTI NAMA dari performCalibration
-float shortestAngleDiff(float target, float current);
+void performParameterReset();
 float normalizeAngle(float angle);
-
-// --- Fungsi WebServer ---
 void handleRoot(AsyncWebServerRequest *request);
 void handleNotFound(AsyncWebServerRequest *request);
 void setupCaptivePortal();
-
-// --- Fungsi WebSocket ---
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length);
-void sendPIDDataToWeb();  // Fungsi untuk mengirim data PID ke web
+void sendPIDDataToWeb();
 
-// Fungsi bantuan untuk mendapatkan lebar teks dengan ukuran font tertentu
 int getTextWidth(String text, int textSize) {
   return text.length() * 6 * textSize;
 }
@@ -157,7 +140,7 @@ void setup() {
   pinMode(CLK, INPUT_PULLUP);
   pinMode(DT, INPUT_PULLUP);
   pinMode(SW, INPUT_PULLUP);
-  lastSW = digitalRead(SW);  // Inisialisasi lastSW
+  lastSW = digitalRead(SW);
 
   pinMode(RPWM, OUTPUT);
   pinMode(LPWM, OUTPUT);
@@ -168,16 +151,14 @@ void setup() {
   analogWrite(RPWM, 0);
   analogWrite(LPWM, 0);
 
-  // --- Inisialisasi TFT (Pesan Loading Single Line) ---
   tft.initR(INITR_BLACKTAB);
-  tft.setRotation(1);  // ROTASI HORIZONTAL: 0
+  tft.setRotation(1);
   tft.fillScreen(ST77XX_BLACK);
   tft.setTextSize(1);
   tft.setTextColor(ST77XX_WHITE);
   tft.setCursor(10, tft.height() / 2 - 7);
   tft.println("PID Trainer Initializing...");
 
-  // --- Inisialisasi SPIFFS ---
   if (!SPIFFS.begin(true)) {
     tft.fillScreen(ST77XX_BLACK);
     tft.setCursor(10, tft.height() / 2 - 7);
@@ -185,121 +166,55 @@ void setup() {
     tft.println("SPIFFS Mount FAILED!");
     Serial.println("SPIFFS Mount Failed");
     while (true)
-      ;  // Stop if SPIFFS fails
+      ;
   }
   Serial.println("SPIFFS Mounted Successfully");
 
-  // --- Setup Captive Portal (AP Mode) dan WebSockets ---
   setupCaptivePortal();
-  webSocket.begin();                  // Mulai WebSocket server
-  webSocket.onEvent(webSocketEvent);  // Daftarkan event handler untuk WebSocket
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);
 
-  // --- Cek Magnet AS5600 ---
-  checkMagnetPresence();  // Fungsi ini akan menampilkan pesan error magnet jika ada
-
-  // --- INISIALISASI SEDERHANA untuk AS5600 dengan ZPOS ---
-  // Tidak perlu kalibrasi startAngle, karena AS5600 sudah ter-burn ZPOS
-  currentAngle = readAS5600Angle();  // Baca sudut langsung dari AS5600
-  // targetAngle = 0;                   // Set target = 0° (karena ZPOS sudah di-burn)
-
+  checkMagnetPresence();
+  currentAngle = readAngle();
+  offsetFromZpos = currentAngle;
   lastPIDTime = millis();
 }
 
 void loop() {
-  // --- Tangani WebServer, DNS, dan WebSocket ---
+
   dnsServer.processNextRequest();
-  webSocket.loop();  // Penting: Panggil ini di loop() untuk memproses event WebSocket
+  webSocket.loop();
 
-  // debugZPOSShift();
-
-  // Hanya jalankan logika utama jika tidak sedang reset parameter
   if (!isCalibrating) {
     handleRotaryEncoder();
     handleRotaryButton();
 
-    // // Baca sudut dari AS5600 dengan Kalman Filter
-    // float measuredAngle = readAS5600Angle();  // Sudut baru dari sensor
-    // dt = pidInterval / 1000.0;
-    // float rate = (measuredAngle - lastAngle) / dt;
-
-    // currentAngle = kalman.getAngle(measuredAngle, rate, dt);
-    // lastAngle = currentAngle;
-
-    // --- continuity-aware rate calc & safer lastAngle handling ---
-    // float measuredAngle = readAS5600Angle();
-    float measuredAngle = readAS5600AngleSigned();
-
+    // float measuredAngle = readAngle();
     dt = pidInterval / 1000.0;
 
-    // gunakan lastRawAngle untuk menyimpan pembacaan raw sebelumnya
-    // static float lastRawAngle = 0.0;
-    // static bool haveLastRaw = false;
-
-    // float deltaRaw;
-    // if (!haveLastRaw) {
-    //   deltaRaw = 0.0;
-    //   haveLastRaw = true;
-    // } else {
-    //   deltaRaw = measuredAngle - lastRawAngle;
-    //   // wrap-around correction (AS5600 0..360)
-    //   if (deltaRaw > 180.0) deltaRaw -= 360.0;
-    //   else if (deltaRaw < -180.0) deltaRaw += 360.0;
-    // }
-
-    // // hitung rate berdasarkan delta raw (deg/s)
-    // float rate = deltaRaw / dt;
-
-    // // cap rate supaya noise besar tidak meledakkan filter
-    // const float MAX_RATE = 2000.0;  // deg/s, sesuaikan jika perlu
-    // if (rate > MAX_RATE) rate = MAX_RATE;
-    // if (rate < -MAX_RATE) rate = -MAX_RATE;
-
-    // feed Kalman with measured raw angle and the computed rate
-    // currentAngle = kalman.getAngle(measuredAngle, rate, dt);
-    // currentAngle = readAS5600Angle();
-    currentAngle = normalizeAngle(measuredAngle);
-
-    // update raw-last, dan jangan set lastAngle = currentAngle (terfilter)
-    // agar perhitungan deltaRaw tetap reliable
-    // lastRawAngle = measuredAngle;
-    // lastAngle = currentAngle;  // optional: jika masih dipakai elsewhere
-    // ---------------------------------------------------------------
-
-
-    if (millis() - lastPIDTime >= pidInterval) {
-      calculatePID();
-      int motorSpeed = constrain(outputPID, -100, 100);
-
-      driveMotor(motorSpeed);
-      lastPIDTime = millis();
-      sendPIDDataToWeb();  // Kirim data PID ke web setelah perhitungan
-    }
-
+    // currentAngle = measuredAngle;
+  unsigned long now = millis();
+if (now - lastPIDTime >= pidInterval) {
+    float dt = (now - lastPIDTime) / 1000.0; // konversi ke detik
+    
+    currentAngle = getCalibratedAngle();  // Pakai processed angle
+    
+    calculatePID();  // fungsi PID sama seperti sebelumnya
+    
+    int motorSpeed = constrain((int)outputPID, -255, 255);
+    driveMotor(motorSpeed);
+    
+    lastPIDTime = now;
+          sendPIDDataToWeb();
+  }
     // if (millis() - lastPIDTime >= pidInterval) {
-    //   float errorNow = targetAngle - currentAngle;
+    //   calculatePID();
+    //   int motorSpeed = constrain(outputPID, -120, 120);
 
-    //   // Jika ada gangguan besar (misalnya > toleransi), aktifkan PID
-    //   if (fabs(errorNow) > 1.0) {
-    //     pidEnabled = true;
-    //   }
-
-    //   if (pidEnabled) {
-    //     calculatePID();
-    //     int motorSpeed = constrain(outputPID, -255, 255);
-    //     driveMotor(motorSpeed);
-
-    //     // Matikan kalau sudah mendekati target
-    //     if (fabs(errorNow) <= 1.0) {
-    //       pidEnabled = false;
-    //       driveMotor(0);
-    //     }
-    //   }
-
-
+    //   driveMotor(motorSpeed);
     //   lastPIDTime = millis();
     //   sendPIDDataToWeb();
     // }
-
 
     if (abs(currentAngle - lastCurrentAngle) > 0.1 || (millis() % 200 < pidInterval) || (millis() % 2000 < pidInterval)) {
       checkTFTUpdate();
@@ -316,19 +231,19 @@ void loop() {
       } else if (input == "mode:view") {
         isEditMode = false;
       }
-      // tambahkan handler untuk perintah lain jika perlu
     }
 
     if (!isEditMode) {
       Serial.println(targetAngle);
+      // Serial.println(measuredAngle);
       Serial.println(currentAngle);
+      Serial.println(degAngle_as5600);
     }
   } else {
-    performParameterReset();  // GANTI NAMA fungsi
+    performParameterReset();
   }
 }
 
-// --- Fungsi untuk menangani putaran Rotary Encoder ---
 void handleRotaryEncoder() {
   unsigned long now = millis();
 
@@ -342,26 +257,27 @@ void handleRotaryEncoder() {
   if (currentCLK != lastCLK) {
     lastEncoderTime = now;
 
-    if (currentCLK == LOW) {  // Falling edge pada CLK
+    if (currentCLK == LOW) {
       int direction;
       if (currentDT != currentCLK) {
-        direction = 1;  // Clockwise
+        direction = 1;
       } else {
-        direction = -1;  // Counter-clockwise
+        direction = -1;
       }
 
       switch (currentMode) {
         case MODE_KP:
-          Kp += direction * 0.1;  // Step lebih kecil untuk kontrol yang lebih halus
-          // if (Kp < 0) Kp = 0;
+          Kp += direction * 0.1;
+          if (Kp < 0) Kp = 0;
+          if (Kp > 1.0) Kp = 1.0;
           break;
         case MODE_KI:
           Ki += direction * 0.0001;
-          // if (Ki < 0) Ki = 0;
+          if (Ki < 0) Ki = 0;
           break;
         case MODE_KD:
           Kd += direction * 0.001;
-          // if (Kd < 0) Kd = 0;
+          if (Kd < 0) Kd = 0;
           break;
       }
       shouldUpdateTFT = true;
@@ -373,7 +289,6 @@ void handleRotaryEncoder() {
   }
 }
 
-// --- Fungsi untuk menangani klik tombol Rotary Encoder (Ditambah Hold) ---
 void handleRotaryButton() {
   unsigned long now = millis();
   bool currentSW = digitalRead(SW);
@@ -382,19 +297,19 @@ void handleRotaryButton() {
     lastButtonTime = now;
 
     if (currentSW == LOW && lastSW == HIGH) {
-      // Tombol baru ditekan
+
       buttonPressStartTime = now;
       buttonWasHeld = false;
       Serial.println("Button pressed");
     } else if (currentSW == HIGH && lastSW == LOW) {
-      // Tombol dilepas
+
       unsigned long holdDuration = now - buttonPressStartTime;
 
       if (holdDuration >= HOLD_DURATION) {
-        // Long press sudah dihandle saat hold
+
         Serial.println("Button released after hold");
       } else if (holdDuration > BUTTON_DEBOUNCE_MS) {
-        // Short press - ganti mode
+
         switch (currentMode) {
           case MODE_KP:
             currentMode = MODE_KI;
@@ -406,7 +321,7 @@ void handleRotaryButton() {
             break;
           case MODE_KD:
             currentMode = MODE_KP;
-            integral = 0;  // Reset integral saat kembali ke Kp
+            integral = 0;
             Serial.println("Mode: Kp");
             break;
         }
@@ -417,11 +332,10 @@ void handleRotaryButton() {
     }
   }
 
-  // Deteksi penahanan tombol untuk RESET PARAMETER
   if (currentSW == LOW && !buttonWasHeld && buttonPressStartTime > 0) {
     if (now - buttonPressStartTime >= HOLD_DURATION) {
 
-      isCalibrating = true;  // Gunakan nama variabel yang sama untuk konsistensi
+      isCalibrating = true;
       buttonWasHeld = true;
       Serial.println("Starting Parameter Reset!");
       tft.fillScreen(ST77XX_BLACK);
@@ -431,36 +345,13 @@ void handleRotaryButton() {
       tft.drawRect(tft.width() / 2 - 50, tft.height() / 2, 100, 10, ST77XX_WHITE);
       analogWrite(RPWM, 0);
       analogWrite(LPWM, 0);
-      sendPIDDataToWeb();  // Kirim status reset ke web (opsional)
+      sendPIDDataToWeb();
     }
   }
 
-  // else if (currentSW == HIGH && lastSW == LOW) {
-  //   unsigned long holdDuration = millis() - buttonPressStartTime;
-
-  //   if (holdDuration < HOLD_DURATION) {
-  //     // Ini adalah klik singkat, jalankan logika ganti mode
-  //     switch (currentMode) {
-  //       case MODE_KP:
-  //         currentMode = MODE_KI;
-  //         break;
-  //       case MODE_KI:
-  //         currentMode = MODE_KD;
-  //         break;
-  //       case MODE_KD:
-  //         currentMode = MODE_KP;
-  //         integral = 0;
-  //         break;
-  //     }
-  //     shouldUpdateTFT = true;
-  //     sendPIDDataToWeb();
-  //   }
-  //   buttonPressStartTime = 0;
-  // }
   lastSW = currentSW;
 }
 
-// --- Fungsi untuk proses reset parameter (GANTI NAMA dari performCalibration) ---
 void performParameterReset() {
   static unsigned long resetStartTime = 0;
   static int progressBarWidth = 0;
@@ -475,7 +366,7 @@ void performParameterReset() {
   float progress = (float)(millis() - resetStartTime) / HOLD_DURATION;
   if (progress > 1.0) progress = 1.0;
 
-  int newProgressBarWidth = (int)(progress * 96);  // 96 = lebar bar di dalam border (100 - 2 * border)
+  int newProgressBarWidth = (int)(progress * 96);
   if (newProgressBarWidth > progressBarWidth) {
     tft.fillRect(tft.width() / 2 - 48, tft.height() / 2 + 2, newProgressBarWidth, 6, ST77XX_GREEN);
     progressBarWidth = newProgressBarWidth;
@@ -503,7 +394,6 @@ void performParameterReset() {
   }
 }
 
-// --- Fungsi-fungsi AS5600 (DISEDERHANAKAN) ---
 void checkMagnetPresence() {
   tft.fillScreen(ST77XX_BLACK);
   tft.setCursor(10, tft.height() / 2 - 7);
@@ -538,114 +428,96 @@ void checkMagnetPresence() {
   triggerFullRefresh();
 }
 
-void ReadProcessedAngle() {
-  // Baca PROCESSED angle (0x0E, 0x0F) yang sudah dikurangi ZPOS
+float readAngle() {
   Wire.beginTransmission(AS5600_ADDR);
-  Wire.write(0x0F);  // ANGLE_LOW register (PROCESSED, bukan RAW)
+  Wire.write(0x0E);  // MSB PROCESSED ANGLE register
   Wire.endTransmission();
-  Wire.requestFrom(AS5600_ADDR, 1);
-  while (Wire.available() == 0)
-    ;
-  lowbyte_as5600 = Wire.read();
+  Wire.requestFrom(AS5600_ADDR, 2);
+  if (Wire.available() < 2) return 0; // fallback bila gagal
+  
+  int high = Wire.read();
+  int low = Wire.read();
+  int rawAngle = (high << 8) | low;
+  
+  float angle = rawAngle * 0.087890625;  // Konversi ke derajat
+  
+  // Normalisasi sudut ke range -180..180
+  while (angle > 180.0) angle -= 360.0;
+  while (angle <= -180.0) angle += 360.0;
 
-  Wire.beginTransmission(AS5600_ADDR);
-  Wire.write(0x0E);  // ANGLE_HIGH register (PROCESSED, bukan RAW)
-  Wire.endTransmission();
-  Wire.requestFrom(AS5600_ADDR, 1);
-  while (Wire.available() == 0)
-    ;
-  highbyte_as5600 = Wire.read();
-
-  highbyte_as5600 = highbyte_as5600 << 8;
-  rawAngle_as5600 = highbyte_as5600 | lowbyte_as5600;
-  degAngle_as5600 = rawAngle_as5600 * 0.087890625;
-}
-
-float readAS5600Angle() {
-  ReadProcessedAngle();  // Gunakan PROCESSED, bukan raw
-  // Sekarang akan return ~0° di posisi yang sudah di-burn
-  return degAngle_as5600;
-}
-
-// Untuk signed angle (-180 to +180)
-float readAS5600AngleSigned() {
-  ReadProcessedAngle();                 // Gunakan PROCESSED
-  float angle = degAngle_as5600;        // 0..360 dari sensor (sudah ter-ZPOS)
-  if (angle > 180.0f) angle -= 360.0f;  // jadi -180..180
   return angle;
 }
 
-float readAS5600RawAngle() {
-  // Baca RAW angle (0x0C, 0x0D) tanpa ZPOS correction
-  Wire.beginTransmission(AS5600_ADDR);
-  Wire.write(0x0D);  // RAW_ANGLE_LOW
-  Wire.endTransmission();
-  Wire.requestFrom(AS5600_ADDR, 1);
-  while (Wire.available() == 0)
-    ;
-  int lowbyte = Wire.read();
+float getCalibratedAngle() {
+  float angleCal = readAngle() - offsetFromZpos;
 
-  Wire.beginTransmission(AS5600_ADDR);
-  Wire.write(0x0C);  // RAW_ANGLE_HIGH
-  Wire.endTransmission();
-  Wire.requestFrom(AS5600_ADDR, 1);
-  while (Wire.available() == 0)
-    ;
-  int highbyte = Wire.read();
+  while (angleCal > 180.0) angleCal -= 360.0;
+  while (angleCal <= -180.0) angleCal += 360.0;
 
-  int rawValue = (highbyte << 8) | lowbyte;
-  return rawValue * 0.087890625;
+  return angleCal;
 }
 
-// void printAngleDebug() {
-//   float rawAngle = readAS5600RawAngle();
-//   float processedAngle = readAS5600Angle();
+// float readAngle() {
 
-//   Serial.printf("Debug - RAW: %.2f° | PROCESSED: %.2f° | ZPOS_OFFSET: %.2f°\n",
-//                 rawAngle, processedAngle, rawAngle - processedAngle);
+//   Wire.beginTransmission(AS5600_ADDR);
+//   Wire.write(0x0F);
+//   Wire.endTransmission();
+//   Wire.requestFrom(AS5600_ADDR, 1);
+//   while (Wire.available() == 0)
+//     ;
+//   lowbyte_as5600 = Wire.read();
+
+//   Wire.beginTransmission(AS5600_ADDR);
+//   Wire.write(0x0E);
+//   Wire.endTransmission();
+//   Wire.requestFrom(AS5600_ADDR, 1);
+//   while (Wire.available() == 0)
+//     ;
+//   highbyte_as5600 = Wire.read();
+
+//   highbyte_as5600 = highbyte_as5600 << 8;
+//   rawAngle_as5600 = highbyte_as5600 | lowbyte_as5600;
+//   degAngle_as5600 = (rawAngle_as5600 * 0.087890625) - offsetFromZpos;
+  
+//   return degAngle_as5600;
+
 // }
 
-float normalizeAngle(float angle) {
-    while (angle > 180.0) angle -= 360.0;
-    while (angle <= -180.0) angle += 360.0;
-    return angle;
-}
+// float readAngleSigned() {
+//   readAngle();
 
-float toUnsigned360(float signedAngle) {
-  if (signedAngle < 0) signedAngle += 360.0f;
-  return signedAngle;
-}
+//   float angle = degAngle_as5600;
+//   if (angle > 180.0f) angle -= 360.0f;
 
+//   return angle;
+// }
 
 void driveMotor(int speed) {
-  // Proteksi sudut batas (pakai signed angle)
-  bool outOfCWLimit = (currentAngle >= CW_LIMIT) && (speed > 0);
-  bool outOfCCWLimit = (currentAngle <= CCW_LIMIT) && (speed < 0);
 
-  if (outOfCWLimit || outOfCCWLimit) {
-    speed = 0;
-  }
+  // bool outOfCWLimit = (currentAngle >= CW_LIMIT) && (speed > 0);
+  // bool outOfCCWLimit = (currentAngle <= CCW_LIMIT) && (speed < 0);
 
-  if (abs(speed) < 5) {
-    analogWrite(RPWM, 0);
-    analogWrite(LPWM, 0);
-    return;
-  }
+  // if (outOfCWLimit || outOfCCWLimit) {
+  //   speed = 0;
+  // }
+
+  // if (abs(speed) < 5) {
+  //   analogWrite(RPWM, 0);
+  //   analogWrite(LPWM, 0);
+  //   return;
+  // }
 
   if (speed > 0) {
     analogWrite(RPWM, speed);
     analogWrite(LPWM, 0);
-  } else {
+  } else if (speed < 0){
     analogWrite(RPWM, 0);
     analogWrite(LPWM, -speed);
   }
-}
-
-float shortestAngleDiff(float target, float current) {
-  float diff = target - current;
-  if (diff > 180) diff -= 360;
-  if (diff < -180) diff += 360;
-  return diff;
+  else {
+    analogWrite(RPWM, 0);
+    analogWrite(LPWM, 0);
+  }
 }
 
 void calculatePID() {
@@ -655,22 +527,19 @@ void calculatePID() {
 
   error = targetAngle - currentAngle;
 
-// Serial.printf("Target: %.2f | Current: %.2f | Error: %.2f | Output(before limit): %.2f\n",
-//               targetAngle, currentAngle, error, Kp * error + Ki * integral + Kd * derivative);
-
   integral += error * dt;
-  integral = constrain(integral, -100, 50); // Sesuaikan batas ini
+  // integral = constrain(integral, -100, 100);
 
   derivative = (error - previousError) / dt;
 
   outputPID = Kp * error + Ki * integral + Kd * derivative;
 
-  bool outOfCWLimit = (currentAngle >= CW_LIMIT) && (outputPID > 0);
-  bool outOfCCWLimit = (currentAngle <= CCW_LIMIT) && (outputPID < 0);
+  // bool outOfCWLimit = (currentAngle >= CW_LIMIT) && (outputPID > 0);
+  // bool outOfCCWLimit = (currentAngle <= CCW_LIMIT) && (outputPID < 0);
 
-  if (outOfCWLimit || outOfCCWLimit) {
-    outputPID = 0;
-  }
+  // if (outOfCWLimit || outOfCCWLimit) {
+  //   outputPID = 0;
+  // }
 
   previousError = error;
 }
@@ -689,15 +558,14 @@ void displayValues() {
     lastKi = -999;
     lastKd = -999;
 
-    needFullRefresh = false;  // Reset flag setelah refresh
+    needFullRefresh = false;
   }
 
   int paddingX = 5;
   int currentY = 5;
   int lineSpacingSmall = 12;
-  int clearWidth = 120;  // Lebar area yang dibersihkan - disesuaikan dengan panjang teks maksimal
+  int clearWidth = 120;
 
-  // --- TARGET ---
   tft.setTextSize(1);
   tft.setCursor(paddingX, currentY);
   tft.setTextColor(ST77XX_WHITE);
@@ -706,7 +574,6 @@ void displayValues() {
   tft.print(" DEG");
   currentY += lineSpacingSmall;
 
-  // --- MOTOR ---
   if (currentAngle != lastDisplayAngle) {
     tft.fillRect(paddingX, currentY, clearWidth, 10, ST77XX_BLACK);
 
@@ -715,13 +582,12 @@ void displayValues() {
     tft.setTextColor(ST77XX_WHITE);
     tft.print("MOTOR: ");
     tft.print(currentAngle, 0);
-    // tft.print(toUnsigned360(currentAngle), 0);
+
     tft.print(" DEG");
     lastDisplayAngle = currentAngle;
   }
   currentY += lineSpacingSmall;
 
-  // --- ERROR ---
   if (abs(error - lastDisplayError) > 0.1) {
     tft.fillRect(paddingX, currentY, clearWidth, 10, ST77XX_BLACK);
 
@@ -735,7 +601,6 @@ void displayValues() {
   }
   currentY += lineSpacingSmall;
 
-  // --- PID OUT ---
   if (abs(outputPID - lastDisplayPID) > 1.0) {
     tft.fillRect(paddingX, currentY, clearWidth, 10, ST77XX_BLACK);
 
@@ -749,8 +614,7 @@ void displayValues() {
   }
   currentY += lineSpacingSmall;
 
-  // --- Kp ---
-  if (abs(Kp - lastKp) > 0.001) {  // Gunakan threshold kecil untuk float
+  if (abs(Kp - lastKp) > 0.001) {
     tft.fillRect(paddingX, currentY, clearWidth, 10, ST77XX_BLACK);
     tft.setTextSize(1);
     tft.setCursor(paddingX, currentY);
@@ -758,12 +622,11 @@ void displayValues() {
     tft.print("Kp: ");
     tft.print(Kp, 6);
 
-    lastKp = Kp;  // Update nilai terakhir
+    lastKp = Kp;
   }
   currentY += lineSpacingSmall;
 
-  // --- Ki ---
-  if (abs(Ki - lastKi) > 0.00001) {  // Threshold sangat kecil untuk Ki
+  if (abs(Ki - lastKi) > 0.00001) {
     tft.fillRect(paddingX, currentY, clearWidth, 10, ST77XX_BLACK);
 
     tft.setTextSize(1);
@@ -772,12 +635,11 @@ void displayValues() {
     tft.print("Ki: ");
     tft.print(Ki, 6);
 
-    lastKi = Ki;  // Update nilai terakhir
+    lastKi = Ki;
   }
   currentY += lineSpacingSmall;
 
-  // --- Kd ---
-  if (abs(Kd - lastKd) > 0.001) {  // Gunakan threshold kecil untuk float
+  if (abs(Kd - lastKd) > 0.001) {
     tft.fillRect(paddingX, currentY, clearWidth, 10, ST77XX_BLACK);
 
     tft.setTextSize(1);
@@ -786,7 +648,7 @@ void displayValues() {
     tft.print("Kd: ");
     tft.print(Kd, 6);
 
-    lastKd = Kd;  // Update nilai terakhir
+    lastKd = Kd;
   }
   currentY += lineSpacingSmall + 5;
 
@@ -797,7 +659,6 @@ void displayValues() {
   tft.print(WiFi.softAPIP());
 }
 
-// Juga perlu perbaikan di fungsi checkTFTUpdate untuk menambahkan update variabel display
 void checkTFTUpdate() {
   bool modeChanged = (currentMode != lastMode);
 
@@ -816,7 +677,6 @@ void checkTFTUpdate() {
   }
 }
 
-// Fungsi untuk inisialisasi tampilan pertama kali (panggil di setup atau setelah kalibrasi)
 void initializeDisplay() {
   tft.fillScreen(ST77XX_BLACK);
 
@@ -836,7 +696,6 @@ void triggerFullRefresh() {
   shouldUpdateTFT = true;
 }
 
-// --- Implementasi Fungsi WebServer ---
 void setupCaptivePortal() {
   Serial.print("Setting AP (Access Point)... ");
   WiFi.softAP(ssid, password);
@@ -878,7 +737,6 @@ void handleNotFound(AsyncWebServerRequest *request) {
   }
 }
 
-// --- Implementasi Fungsi WebSocket ---
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
   switch (type) {
     case WStype_DISCONNECTED:
@@ -929,7 +787,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
           shouldUpdateTFT = true;
           sendPIDDataToWeb();
         } else if (commandType == "calibrate") {
-          // UBAH: Sekarang untuk reset parameter, bukan kalibrasi posisi
+
           isCalibrating = true;
           buttonPressStartTime = millis();
           buttonWasHeld = true;
@@ -954,7 +812,6 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
   }
 }
 
-// Fungsi untuk mengirim data PID ke web
 void sendPIDDataToWeb() {
   if (webSocket.connectedClients() > 0) {
     StaticJsonDocument<250> doc;
@@ -967,7 +824,7 @@ void sendPIDDataToWeb() {
     }
     doc["error"] = error;
     doc["pid_out"] = outputPID;
-    doc["time_s"] = millis() / 1000.0;  // Tambahkan waktu dalam detik
+    doc["time_s"] = millis() / 1000.0;
 
     String jsonString;
     serializeJson(doc, jsonString);
