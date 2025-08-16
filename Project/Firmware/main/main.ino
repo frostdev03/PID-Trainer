@@ -60,8 +60,8 @@ bool buttonWasHeld = false;
 float rotaryStep = 0.01;
 
 float Kp = 0.3000;
-float Ki = 0.00010;
-float Kd = 0.001000;
+float Ki = 0.00110;
+float Kd = 0.003000;
 float dt = 0;
 float error = 0;
 float previousError = 0;
@@ -69,8 +69,9 @@ float integral = 0;
 float outputPID = 0;
 float derivative = 0;
 
-float offsetFromZpos = 108;
+// float offsetFromZpos = 108;
 // float offsetFromZpos = 69.69;
+float offsetFromZpos = 145;
 
 bool pidEnabled = true;
 unsigned long startTime = 0;
@@ -350,21 +351,8 @@ void calculatePID() {
 //   }
 // }
 void driveMotor(int speed) {
-  speed = constrain(speed, -255, 255);
+  speed = constrain(speed, -10, 10);
 
-  // float limitFactor = 1.0;
-
-  // if (currentAngle > CW_LIMIT - 5.0 && speed > 0) {
-  //   // Approaching CW limit, slow down
-  //   limitFactor = (CW_LIMIT - currentAngle) / 5.0;
-  //   limitFactor = constrain(limitFactor, 0.0, 1.0);
-  // } else if (currentAngle < CCW_LIMIT + 5.0 && speed < 0) {
-  //   // Approaching CCW limit, slow down
-  //   limitFactor = (currentAngle - CCW_LIMIT) / 5.0;
-  //   limitFactor = constrain(limitFactor, 0.0, 1.0);
-  // }
-
-  // HARD LIMITS - complete stop
   bool outOfCWLimit = (currentAngle >= CW_LIMIT) && (speed > 0);
   bool outOfCCWLimit = (currentAngle <= CCW_LIMIT) && (speed < 0);
 
@@ -389,14 +377,14 @@ void driveMotor(int speed) {
   Serial.println(digitalRead(LEN));
 
   if (speed > 0) {
-    analogWrite(RPWM, speed);
-    analogWrite(LPWM, 0);
+    analogWrite(LPWM, speed);
+    analogWrite(RPWM, 0);
     Serial.print("Setting RPWM=");
     Serial.print(speed);
     Serial.println(", LPWM=0");
   } else if (speed < 0) {
-    analogWrite(RPWM, 0);
-    analogWrite(LPWM, -speed);
+    analogWrite(LPWM, 0);
+    analogWrite(RPWM, -speed);
     Serial.print("Setting RPWM=0, LPWM=");
     Serial.println(-speed);
   } else {
@@ -409,42 +397,6 @@ void driveMotor(int speed) {
 float getCalibratedAngle() {
   return normalizeAngle(readAngle() - offsetFromZpos);
 }
-
-// Ganti fungsi getCalibratedAngle():
-// float getCalibratedAngle() {
-//   static unsigned long lastKalmanTime = 0;
-//   static float lastFilteredAngle = 0;
-
-//   unsigned long now = millis();
-//   float dt = (now - lastKalmanTime) / 1000.0;
-
-//   if (lastKalmanTime == 0) {
-//     dt = 0.01; // first run
-//     lastKalmanTime = now;
-//   }
-
-//   float rawAngle = readAngle();
-
-//   // Calculate rate (change in angle)
-//   float angleRate = 0;
-//   if (dt > 0) {
-//     float normalizedRaw = normalizeAngle(rawAngle - offsetFromZpos);
-//     float normalizedLast = normalizeAngle(lastFilteredAngle);
-//     angleRate = normalizeAngle(normalizedRaw - normalizedLast) / dt;
-//   }
-
-//   // Apply Kalman filter
-//   float filteredAngle = kalman.getAngle(
-//     normalizeAngle(rawAngle - offsetFromZpos),
-//     angleRate,
-//     dt
-//   );
-
-//   lastFilteredAngle = filteredAngle;
-//   lastKalmanTime = now;
-
-//   return filteredAngle;
-// }
 
 void handleRotaryEncoder() {
   unsigned long now = millis();
