@@ -26,23 +26,23 @@ Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 #define DT 25
 #define SW 13
 
-#define RPWM 2
-#define LPWM 0
-#define REN 27
-#define LEN 14
+// #define RPWM 2
+// #define LPWM 0
+// #define REN 27
+// #define LEN 14
 
-float lastAngle = 0.0;
+#define LEN 21
+#define REN 22
+#define LPWM 27
+#define RPWM 26
 
 int magnetStatus = 0;
-int lowbyte_as5600;
-word highbyte_as5600;
-int rawAngle_as5600;
-float degAngle_as5600;
 
 float targetAngle = 0;
 float currentAngle = 0;
-bool needFullRefresh = true;
+int motorSpeed = 0;
 
+bool needFullRefresh = true;
 bool isEditMode = false;
 
 int lastCLK = HIGH;
@@ -59,8 +59,8 @@ bool buttonWasHeld = false;
 
 float rotaryStep = 0.01;
 
-float Kp = 0.7000;
-float Ki = 0.0000;
+float Kp = 0.3000;
+float Ki = 0.00010;
 float Kd = 0.001000;
 float dt = 0;
 float error = 0;
@@ -69,17 +69,16 @@ float integral = 0;
 float outputPID = 0;
 float derivative = 0;
 
-// float offsetFromZpos = 51.42;
-float offsetFromZpos = 69.69;
-
-const float CW_LIMIT = 40.0;
-const float CCW_LIMIT = -40.0;
+float offsetFromZpos = 108;
+// float offsetFromZpos = 69.69;
 
 bool pidEnabled = true;
 unsigned long startTime = 0;
-
 unsigned long lastPIDTime = 0;
-int pidInterval = 20;
+int pidInterval = 10;
+
+const float CW_LIMIT = 35.0;
+const float CCW_LIMIT = -35.0;
 
 float lastTargetAngle = -999;
 float lastCurrentAngle = -999;
@@ -113,7 +112,6 @@ AsyncWebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
 
 void checkMagnetPresence();
-void ReadRawAngle();
 float readAngle();
 void calculatePID();
 void driveMotor(int speed);
@@ -121,21 +119,43 @@ void displayValues();
 void handleRotaryEncoder();
 void handleRotaryButton();
 void performParameterReset();
+float readAngle();
+float getCalibratedAngle();
 float normalizeAngle(float angle);
 void handleRoot(AsyncWebServerRequest *request);
 void handleNotFound(AsyncWebServerRequest *request);
 void setupCaptivePortal();
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length);
 void sendPIDDataToWeb();
+void checkTFTUpdate();
 
 int getTextWidth(String text, int textSize) {
   return text.length() * 6 * textSize;
 }
 
+void testMotor() {
+  Serial.println("Testing motor - Forward");
+  digitalWrite(REN, HIGH);
+  digitalWrite(LEN, HIGH);
+  analogWrite(RPWM, 50);
+  analogWrite(LPWM, 0);
+  delay(2000);
+
+  Serial.println("Testing motor - Backward");
+  analogWrite(RPWM, 0);
+  analogWrite(LPWM, 50);
+  delay(2000);
+
+  Serial.println("Testing motor - Stop");
+  analogWrite(RPWM, 0);
+  analogWrite(LPWM, 0);
+  delay(1000);
+}
+
 void setup() {
   Serial.begin(115200);
   Wire.begin(AS5600_SDA_PIN, AS5600_SCL_PIN);
-  Wire.setClock(100000);
+  Wire.setClock(100000);  // TODO: CHECK EFFECT
 
   pinMode(CLK, INPUT_PULLUP);
   pinMode(DT, INPUT_PULLUP);
@@ -148,8 +168,10 @@ void setup() {
   pinMode(LEN, OUTPUT);
   digitalWrite(REN, HIGH);
   digitalWrite(LEN, HIGH);
-  analogWrite(RPWM, 0);
-  analogWrite(LPWM, 0);
+  // analogWrite(RPWM, 0);
+  // analogWrite(LPWM, 0);
+
+  // testMotor();
 
   tft.initR(INITR_BLACKTAB);
   tft.setRotation(1);
@@ -176,7 +198,9 @@ void setup() {
 
   checkMagnetPresence();
   currentAngle = readAngle();
-  offsetFromZpos = currentAngle;
+  kalman.setAngle(readAngle());  // set initial angle
+
+  // offsetFromZpos = currentAngle;
   lastPIDTime = millis();
 }
 
@@ -193,28 +217,26 @@ void loop() {
     dt = pidInterval / 1000.0;
 
     // currentAngle = measuredAngle;
-  unsigned long now = millis();
-if (now - lastPIDTime >= pidInterval) {
-    float dt = (now - lastPIDTime) / 1000.0; // konversi ke detik
-    
-    currentAngle = getCalibratedAngle();  // Pakai processed angle
-    
-    calculatePID();  // fungsi PID sama seperti sebelumnya
-    
-    int motorSpeed = constrain((int)outputPID, -255, 255);
-    driveMotor(motorSpeed);
-    
-    lastPIDTime = now;
-          sendPIDDataToWeb();
-  }
-    // if (millis() - lastPIDTime >= pidInterval) {
-    //   calculatePID();
-    //   int motorSpeed = constrain(outputPID, -120, 120);
+    unsigned long now = millis();
+    if (now - lastPIDTime >= pidInterval) {
+      float dt = (now - lastPIDTime) / 1000.0;
 
-    //   driveMotor(motorSpeed);
-    //   lastPIDTime = millis();
-    //   sendPIDDataToWeb();
-    // }
+      // currentAngle = normalizeAngle(readAngle());
+      currentAngle = getCalibratedAngle();
+      // currentAngle = normalizeAngle(getFilteredAngle() - offsetFromZpos);
+
+      calculatePID();
+
+      // motorSpeed = constrain((int)outputPID, -255, 255);
+      motorSpeed = outputPID;
+      Serial.print("About to call driveMotor with: ");
+      Serial.println(motorSpeed);
+
+      driveMotor(motorSpeed);
+
+      lastPIDTime = now;
+      sendPIDDataToWeb();
+    }
 
     if (abs(currentAngle - lastCurrentAngle) > 0.1 || (millis() % 200 < pidInterval) || (millis() % 2000 < pidInterval)) {
       checkTFTUpdate();
@@ -235,14 +257,194 @@ if (now - lastPIDTime >= pidInterval) {
 
     if (!isEditMode) {
       Serial.println(targetAngle);
-      // Serial.println(measuredAngle);
+      // Serial.println(readAngle());
       Serial.println(currentAngle);
-      Serial.println(degAngle_as5600);
+      // Serial.println(motorSpeed);
+      // Serial.println(normalizeAngle(readAngle()));
     }
   } else {
     performParameterReset();
   }
 }
+
+float readAngle() {
+  Wire.beginTransmission(AS5600_ADDR);
+  Wire.write(0x0E);  // MSB PROCESSED ANGLE register
+  Wire.endTransmission();
+  Wire.requestFrom(AS5600_ADDR, 2);
+  if (Wire.available() < 2) return 0;  // fallback bila gagal
+
+  int high = Wire.read();
+  int low = Wire.read();
+  int rawAngle = (high << 8) | low;
+
+  return rawAngle * 0.087890625;
+  // return rawAngle;
+}
+
+float normalizeAngle(float angle) {
+  while (angle > 180.0) angle -= 360.0;
+  while (angle <= -180.0) angle += 360.0;
+  return angle;
+}
+
+
+
+void calculatePID() {
+
+  // if (currentAngle > 180) currentAngle -= 360;
+  // if (currentAngle < -180) currentAngle += 360;
+
+  error = targetAngle - currentAngle;
+  error = normalizeAngle(error);
+
+  if (abs(error) < 0.5) {
+    error = 0;
+  }
+
+  integral += error * dt;
+  // integral = constrain(integral, -100, 100);
+
+  derivative = (error - previousError) / dt;
+
+  outputPID = (Kp * error) + (Ki * integral) + (Kd * derivative);
+
+  Serial.print("Error: ");
+  Serial.print(error);
+  Serial.print(", PID Output: ");
+  Serial.print(outputPID);
+  Serial.print(", Motor Speed: ");
+  Serial.println(motorSpeed);
+
+  previousError = error;
+}
+
+// void driveMotor(int speed) {
+//   speed = constrain(speed, -255, 255); // jaga tetap di range
+//   digitalWrite(REN, HIGH);
+//   digitalWrite(LEN, HIGH);
+
+//   if (speed > 0) {
+//     analogWrite(RPWM, speed);
+//     analogWrite(LPWM, 0);
+//   } else if (speed < 0) {
+//     analogWrite(RPWM, 0);
+//     analogWrite(LPWM, -speed);
+//   } else {
+//     analogWrite(RPWM, 0);
+//     analogWrite(LPWM, 0);
+//   }
+// }
+
+// void driveMotor(int speed) {
+//   speed = constrain(speed, -255, 255);
+
+//   if (speed > 0) {
+//     digitalWrite(REN, HIGH);
+//     digitalWrite(LEN, HIGH);
+//     analogWrite(RPWM, speed);  // CCW = REN, LEN, RPWM == HIGH
+//   } else {
+//     digitalWrite(REN, HIGH);
+//     digitalWrite(LEN, HIGH);
+//     analogWrite(LPWM, -speed);  // CW = REN, LEN, LPWM == HIGH
+//   }
+// }
+void driveMotor(int speed) {
+  speed = constrain(speed, -255, 255);
+
+  // float limitFactor = 1.0;
+
+  // if (currentAngle > CW_LIMIT - 5.0 && speed > 0) {
+  //   // Approaching CW limit, slow down
+  //   limitFactor = (CW_LIMIT - currentAngle) / 5.0;
+  //   limitFactor = constrain(limitFactor, 0.0, 1.0);
+  // } else if (currentAngle < CCW_LIMIT + 5.0 && speed < 0) {
+  //   // Approaching CCW limit, slow down
+  //   limitFactor = (currentAngle - CCW_LIMIT) / 5.0;
+  //   limitFactor = constrain(limitFactor, 0.0, 1.0);
+  // }
+
+  // HARD LIMITS - complete stop
+  bool outOfCWLimit = (currentAngle >= CW_LIMIT) && (speed > 0);
+  bool outOfCCWLimit = (currentAngle <= CCW_LIMIT) && (speed < 0);
+
+  if (outOfCWLimit || outOfCCWLimit) {
+    speed = 0;
+    // } else {
+    //   speed = (int)(speed * limitFactor);  // apply soft limit
+  }
+
+  delay(10);
+  // Debug print
+  Serial.print("driveMotor called with speed: ");
+  Serial.println(speed);
+
+  digitalWrite(REN, HIGH);
+  digitalWrite(LEN, HIGH);
+
+  // Debug enable pins
+  Serial.print("REN: ");
+  Serial.print(digitalRead(REN));
+  Serial.print(", LEN: ");
+  Serial.println(digitalRead(LEN));
+
+  if (speed > 0) {
+    analogWrite(RPWM, speed);
+    analogWrite(LPWM, 0);
+    Serial.print("Setting RPWM=");
+    Serial.print(speed);
+    Serial.println(", LPWM=0");
+  } else if (speed < 0) {
+    analogWrite(RPWM, 0);
+    analogWrite(LPWM, -speed);
+    Serial.print("Setting RPWM=0, LPWM=");
+    Serial.println(-speed);
+  } else {
+    analogWrite(RPWM, 0);
+    analogWrite(LPWM, 0);
+    Serial.println("Setting RPWM=0, LPWM=0");
+  }
+}
+
+float getCalibratedAngle() {
+  return normalizeAngle(readAngle() - offsetFromZpos);
+}
+
+// Ganti fungsi getCalibratedAngle():
+// float getCalibratedAngle() {
+//   static unsigned long lastKalmanTime = 0;
+//   static float lastFilteredAngle = 0;
+
+//   unsigned long now = millis();
+//   float dt = (now - lastKalmanTime) / 1000.0;
+
+//   if (lastKalmanTime == 0) {
+//     dt = 0.01; // first run
+//     lastKalmanTime = now;
+//   }
+
+//   float rawAngle = readAngle();
+
+//   // Calculate rate (change in angle)
+//   float angleRate = 0;
+//   if (dt > 0) {
+//     float normalizedRaw = normalizeAngle(rawAngle - offsetFromZpos);
+//     float normalizedLast = normalizeAngle(lastFilteredAngle);
+//     angleRate = normalizeAngle(normalizedRaw - normalizedLast) / dt;
+//   }
+
+//   // Apply Kalman filter
+//   float filteredAngle = kalman.getAngle(
+//     normalizeAngle(rawAngle - offsetFromZpos),
+//     angleRate,
+//     dt
+//   );
+
+//   lastFilteredAngle = filteredAngle;
+//   lastKalmanTime = now;
+
+//   return filteredAngle;
+// }
 
 void handleRotaryEncoder() {
   unsigned long now = millis();
@@ -308,6 +510,8 @@ void handleRotaryButton() {
       if (holdDuration >= HOLD_DURATION) {
 
         Serial.println("Button released after hold");
+        offsetFromZpos = readAngle();
+        integral = 0;
       } else if (holdDuration > BUTTON_DEBOUNCE_MS) {
 
         switch (currentMode) {
@@ -338,6 +542,11 @@ void handleRotaryButton() {
       isCalibrating = true;
       buttonWasHeld = true;
       Serial.println("Starting Parameter Reset!");
+      // This is the correct way to set the offset based on the current physical position
+      // offsetFromZpos = readAngle();
+
+      // // Reset the integral to prevent sudden movement after calibration
+      // integral = 0;
       tft.fillScreen(ST77XX_BLACK);
       tft.setCursor(tft.width() / 2 - getTextWidth("Resetting...", 1) / 2, tft.height() / 2 - 20);
       tft.setTextColor(ST77XX_YELLOW);
@@ -351,6 +560,73 @@ void handleRotaryButton() {
 
   lastSW = currentSW;
 }
+
+// void handleRotaryButton() {
+//   unsigned long now = millis();
+//   bool currentSW = digitalRead(SW);
+
+//   // Check for button state change with debounce
+//   if (currentSW != lastSW && (now - lastButtonTime > BUTTON_DEBOUNCE_MS)) {
+
+//     lastButtonTime = now;
+
+//     if (currentSW == LOW) {
+//       // Button pressed (LOW state)
+//       buttonPressStartTime = now;
+//       Serial.println("Button pressed");
+//     } else {
+//       // Button released (HIGH state)
+//       unsigned long holdDuration = now - buttonPressStartTime;
+//       Serial.println("Button released");
+
+//       // Check if it was a short press
+//       if (holdDuration > BUTTON_DEBOUNCE_MS && holdDuration < HOLD_DURATION) {
+//         // Short press logic: Cycle through modes (Kp, Ki, Kd)
+//         switch (currentMode) {
+//           case MODE_KP:
+//             currentMode = MODE_KI;
+//             Serial.println("Mode: Ki");
+//             break;
+//           case MODE_KI:
+//             currentMode = MODE_KD;
+//             Serial.println("Mode: Kd");
+//             break;
+//           case MODE_KD:
+//             currentMode = MODE_KP;
+//             integral = 0;
+//             Serial.println("Mode: Kp");
+//             break;
+//         }
+//         shouldUpdateTFT = true;
+//         sendPIDDataToWeb();
+//       }
+//       // Check if it was a long press
+//       else if (holdDuration >= HOLD_DURATION) {
+//         // Long press logic: Recalibrate the zero position
+//         Serial.println("Long press detected. Recalibrating zero position.");
+
+//         // This is the correct way to set the offset based on the current physical position
+//         offsetFromZpos = readAngle();
+
+//         // Reset the integral to prevent sudden movement after calibration
+//         integral = 0;
+
+//         // Add any additional actions for a long press, e.g., display a message
+//         tft.fillScreen(ST77XX_BLACK);
+//         tft.setCursor(tft.width() / 2 - getTextWidth("Calibrated!", 1) / 2, tft.height() / 2 - 20);
+//         tft.setTextColor(ST77XX_GREEN);
+//         tft.println("Calibrated!");
+//         delay(1000); // Display message for a second
+//         needFullRefresh = true; // Tell the display loop to redraw everything
+//       }
+
+//       buttonPressStartTime = 0; // Reset the timer
+//     }
+//   }
+
+//   // Update the last button state
+//   lastSW = currentSW;
+// }
 
 void performParameterReset() {
   static unsigned long resetStartTime = 0;
@@ -426,122 +702,6 @@ void checkMagnetPresence() {
   }
 
   triggerFullRefresh();
-}
-
-float readAngle() {
-  Wire.beginTransmission(AS5600_ADDR);
-  Wire.write(0x0E);  // MSB PROCESSED ANGLE register
-  Wire.endTransmission();
-  Wire.requestFrom(AS5600_ADDR, 2);
-  if (Wire.available() < 2) return 0; // fallback bila gagal
-  
-  int high = Wire.read();
-  int low = Wire.read();
-  int rawAngle = (high << 8) | low;
-  
-  float angle = rawAngle * 0.087890625;  // Konversi ke derajat
-  
-  // Normalisasi sudut ke range -180..180
-  while (angle > 180.0) angle -= 360.0;
-  while (angle <= -180.0) angle += 360.0;
-
-  return angle;
-}
-
-float getCalibratedAngle() {
-  float angleCal = readAngle() - offsetFromZpos;
-
-  while (angleCal > 180.0) angleCal -= 360.0;
-  while (angleCal <= -180.0) angleCal += 360.0;
-
-  return angleCal;
-}
-
-// float readAngle() {
-
-//   Wire.beginTransmission(AS5600_ADDR);
-//   Wire.write(0x0F);
-//   Wire.endTransmission();
-//   Wire.requestFrom(AS5600_ADDR, 1);
-//   while (Wire.available() == 0)
-//     ;
-//   lowbyte_as5600 = Wire.read();
-
-//   Wire.beginTransmission(AS5600_ADDR);
-//   Wire.write(0x0E);
-//   Wire.endTransmission();
-//   Wire.requestFrom(AS5600_ADDR, 1);
-//   while (Wire.available() == 0)
-//     ;
-//   highbyte_as5600 = Wire.read();
-
-//   highbyte_as5600 = highbyte_as5600 << 8;
-//   rawAngle_as5600 = highbyte_as5600 | lowbyte_as5600;
-//   degAngle_as5600 = (rawAngle_as5600 * 0.087890625) - offsetFromZpos;
-  
-//   return degAngle_as5600;
-
-// }
-
-// float readAngleSigned() {
-//   readAngle();
-
-//   float angle = degAngle_as5600;
-//   if (angle > 180.0f) angle -= 360.0f;
-
-//   return angle;
-// }
-
-void driveMotor(int speed) {
-
-  // bool outOfCWLimit = (currentAngle >= CW_LIMIT) && (speed > 0);
-  // bool outOfCCWLimit = (currentAngle <= CCW_LIMIT) && (speed < 0);
-
-  // if (outOfCWLimit || outOfCCWLimit) {
-  //   speed = 0;
-  // }
-
-  // if (abs(speed) < 5) {
-  //   analogWrite(RPWM, 0);
-  //   analogWrite(LPWM, 0);
-  //   return;
-  // }
-
-  if (speed > 0) {
-    analogWrite(RPWM, speed);
-    analogWrite(LPWM, 0);
-  } else if (speed < 0){
-    analogWrite(RPWM, 0);
-    analogWrite(LPWM, -speed);
-  }
-  else {
-    analogWrite(RPWM, 0);
-    analogWrite(LPWM, 0);
-  }
-}
-
-void calculatePID() {
-
-  if (currentAngle > 180) currentAngle -= 360;
-  if (currentAngle < -180) currentAngle += 360;
-
-  error = targetAngle - currentAngle;
-
-  integral += error * dt;
-  // integral = constrain(integral, -100, 100);
-
-  derivative = (error - previousError) / dt;
-
-  outputPID = Kp * error + Ki * integral + Kd * derivative;
-
-  // bool outOfCWLimit = (currentAngle >= CW_LIMIT) && (outputPID > 0);
-  // bool outOfCCWLimit = (currentAngle <= CCW_LIMIT) && (outputPID < 0);
-
-  // if (outOfCWLimit || outOfCCWLimit) {
-  //   outputPID = 0;
-  // }
-
-  previousError = error;
 }
 
 void displayValues() {

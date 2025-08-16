@@ -5,6 +5,7 @@ class KalmanFilter {
 public:
   KalmanFilter();
   float getAngle(float newAngle, float newRate, float dt);
+    void setAngle(float angle); // tambah ini
 
 private:
   float Q_angle;

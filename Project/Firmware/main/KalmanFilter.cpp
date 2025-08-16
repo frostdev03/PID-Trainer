@@ -2,8 +2,8 @@
 
 KalmanFilter::KalmanFilter() {
   Q_angle = 0.001;
-  Q_bias = 0.003;
-  R_measure = 0.03;
+  Q_bias = 0.001;
+  R_measure = 0.01;
 
   angle = 0.0;
   bias = 0.0;
@@ -40,4 +40,8 @@ float KalmanFilter::getAngle(float newAngle, float newRate, float dt) {
   P[1][1] -= K[1] * P01_temp;
 
   return angle;
+}
+
+void KalmanFilter::setAngle(float newAngle) {
+  this->angle = newAngle;
 }
