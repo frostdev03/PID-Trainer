@@ -98,13 +98,19 @@
             border-color: #fb923c;
         }
         
-        .screenshot-btn {
+        .top-button {
             background: #d1fae5;
             color: #065f46;
             border: 2px solid #34d399;
+            width: 120px;   
+            height: 40px;  
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
         }
         
-        .screenshot-btn:hover {
+        .top-button:hover {
             background: #a7f3d0;
             transform: translateY(-1px);
         }
@@ -367,7 +373,7 @@
         <!-- Header -->
         <div class="header">
             <h1>PID Trainer</h1>
-            <div class="subtitle">D4 Teknik Elektronik</div>
+            <div class="subtitle">D4 Teknik Elektronika</div>
             <div class="university">Universitas Negeri Yogyakarta</div>
         </div>
         
@@ -378,12 +384,13 @@
                 <!-- Chart Controls -->
                 <!-- Chart Controls dengan Judul di Kiri -->
 <div class="chart-controls justify-between items-center">
-    <div class="chart-title text-lg font-bold text-blue-800">Grafik Sudut Motor</div>
+    <div class="chart-title text-lg font-bold text-blue-800">Real Time Plot</div>
 
     <div class="flex gap-2">
 
-        <button id="pauseChart" class="pause-btn">Pause Grafik</button>
-        <button id="screenshotChart" class="screenshot-btn">Screenshot</button>
+        <button id="recordButton" class="top-button">Record</button>
+        <button id="pauseChart" class="top-button">Pause</button>
+        <button id="screenshotChart" class="top-button">Screenshot</button>
 <div class="toggle-switch" id="toggleSwitch">
         <div class="toggle-slider">
             <span id="toggleStatusText" class="toggle-status">View</span>
@@ -404,21 +411,21 @@
                 
                 <!-- Parameters -->
                 <div class="parameters-section">
-                    <div class="section-title">Parameter PID</div>
+                    <div class="section-title">PID Parameters</div>
                     
                     <div class="input-group">
-                        <label for="inputKp">Konstanta Kp</label>
-                        <input type="number" id="inputKp" value="0.6" step="any">
+                        <label for="inputKp">Kp</label>
+                        <input type="number" id="inputKp" value="0.4000000" step="any">
                     </div>
                     
                     <div class="input-group">
-                        <label for="inputKi">Konstanta Ki</label>
-                        <input type="number" id="inputKi" value="0.0001" step="any">
+                        <label for="inputKi">Ki</label>
+                        <input type="number" id="inputKi" value="0.000300" step="any">
                     </div>
                     
                     <div class="input-group">
-                        <label for="inputKd">Konstanta Kd</label>
-                        <input type="number" id="inputKd" value="0.25" step="any">
+                        <label for="inputKd">Kd</label>
+                        <input type="number" id="inputKd" value="0.00100" step="any">
                     </div>
                     
                     <div class="input-group">
@@ -427,10 +434,9 @@
                     </div>
 <div class="button-row">
   <button id="setPidButton" class="action-btn btn-primary">Set Parameter</button>
-  <button id="setTargetButton" class="action-btn btn-primary">Set Sudut</button>
+  <button id="setTargetButton" class="action-btn btn-primary">Set Target</button>
 </div>
-
-                    <button id="calibrateButton" class="action-btn btn-danger">Kalibrasi Sistem</button>
+                    <button id="calibrateButton" class="action-btn btn-danger">Reset Parameter</button>
                 </div>
 <div id="pidInfo" class="pid-info">
 <div id="pid-metrics">
@@ -446,19 +452,13 @@
     </div>
 
     <script>
+        console.log("Memulai koneksi WebSocket...");
         const ws = new WebSocket('ws://192.168.4.1:81/');
         
         // Elemen input
         const inputKp = document.getElementById('inputKp');
         const inputKi = document.getElementById('inputKi');
         const inputKd = document.getElementById('inputKd');
-
-        const infoKp = document.getElementById('infoKp');
-        const infoKi = document.getElementById('infoKi');
-        const infoKd = document.getElementById('infoKd');
-        const infoOut = document.getElementById('infoOut');
-        const infoErr = document.getElementById('infoErr');
-
         const inputTargetAngle = document.getElementById('inputTargetAngle');
         
         // Tombol
@@ -467,15 +467,17 @@
         const calibrateButton = document.getElementById('calibrateButton');
         const pauseButton = document.getElementById('pauseChart');
         const screenshotButton = document.getElementById('screenshotChart');
+        const recordButton = document.getElementById('recordButton');
         
         // Toggle elements
         const toggleSwitch = document.getElementById('toggleSwitch');
-        const modeText = document.getElementById('modeText');
         const inputFields = [inputKp, inputKi, inputKd, inputTargetAngle];
         const controlButtons = [setPidButton, setTargetButton];
         
         let isEditMode = false;
         let isPaused = false;
+        let isRecording = false;
+        let recordedValues = [];
 
         // Variabel metric
         let riseTime = null;
@@ -512,11 +514,23 @@
             settled = false;
         }
 
+        function downloadTextFile(filename, text) {
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }
+
         // Pause functionality
         pauseButton.addEventListener('click', () => {
             isPaused = !isPaused;
             pauseButton.classList.toggle('paused', isPaused);
-            pauseButton.textContent = isPaused ? 'Resume Grafik' : 'Pause Grafik';
+            pauseButton.textContent = isPaused ? 'Resume' : 'Pause';
         });
 
         // Screenshot functionality
@@ -526,6 +540,27 @@
             link.download = `PID_Chart_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
             link.href = canvas.toDataURL();
             link.click();
+        });
+
+        recordButton.addEventListener('click', () => {
+            if (!isRecording) {
+                // Mulai record
+                isRecording = true;
+                recordedValues = [];
+                recordButton.textContent = 'Stop';
+                console.log("Mulai recording...");
+            } else {
+                // Stop record & download file
+                isRecording = false;
+                recordButton.textContent = 'Record';
+                console.log("Stop recording. Total data:", recordedValues.length);
+
+                if (recordedValues.length > 0) {
+                    const filename = `motor-value.txt`;
+                    const content = recordedValues.join("\n");
+                    downloadTextFile(filename, content);
+                }
+            }
         });
 
         function setEditMode(enabled) {
@@ -541,14 +576,33 @@
             const data = { type: type };
             if (parameter) data.parameter = parameter;
             if (value !== undefined) data.value = value;
-            ws.send(JSON.stringify(data));
+            
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(data));
+                console.log("Data terkirim:", data);
+            } else {
+                console.error("WebSocket belum terhubung. Status:", ws.readyState);
+            }
         }
 
-                // Event listener untuk pesan dari WebSocket
+        // Event listener untuk pesan dari WebSocket - DIPERBAIKI
         ws.onmessage = function(event) {
+            console.log("Data diterima dari WebSocket:", event.data);
+            
             try {
                 const data = JSON.parse(event.data);
                 const motorValue = data.motor ?? 0;
+                
+                console.log("Motor value:", motorValue);
+
+                // Simpan data recording dengan aman
+                if (isRecording && recordedValues) {
+                    try {
+                        recordedValues.push(motorValue);
+                    } catch (recordError) {
+                        console.error("Error saat recording:", recordError);
+                    }
+                }
 
                 // Reset saat awal nyala atau ada gangguan besar (>20° dari 0)
                 if (startTime === null || (Math.abs(motorValue) > 20 && settled)) {
@@ -603,21 +657,21 @@
         };
 
         calibrateButton.onclick = function() {
-            if (confirm("Apakah Anda yakin ingin melakukan kalibrasi? Ini akan mereset semua parameter PID dan sudut target ke 0.")) {
+            if (confirm("Apakah Anda yakin ingin mereset nilai parameter? Ini akan mereset semua parameter PID ke 0")) {
                 sendData('calibrate');
                 console.log("Mengirim perintah kalibrasi.");
             }
         };
 
         ws.onopen = function(event) {
-            console.log("WebSocket terhubung.");
+            console.log("WebSocket terhubung dengan sukses!");
         };
 
         ws.onclose = function(event) {
             console.log("WebSocket terputus:", event);
             setTimeout(() => {
                 console.log("Mencoba menyambungkan kembali WebSocket...");
-                new WebSocket('ws://192.168.4.1:81/');
+                location.reload(); // Reload halaman untuk reconnect
             }, 5000);
         };
 
